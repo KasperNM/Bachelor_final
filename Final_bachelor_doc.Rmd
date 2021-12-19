@@ -9,6 +9,22 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+##Bachelor data analysis
+
+#Hypothesis
+Hypotheses:
+
+Hypothesis 1: The overall (HR and responses) emotional experience is different in fictional and factual stories
+
+Hypothesis 2: The sentiment of the stories have an effect on the overall experience of the story
+
+Hypothesis 3: Heart rate is modulated by the sentiment of the stories 
+
+Post hoc exploratory analysis - split the dataset up - push the data - run analysis again
+
+Maybe: see if mean responses correspond to HRV data
+
+
 #Preprocessing of logdata: Sentiment analysis on police reports
 ```{r}
 #Libraries
@@ -124,18 +140,19 @@ for(col in 1:ncol(hrdata1)){
 #Saving the dataframe for later use
 write_csv(hrdata1, "/Users/kaspermichelsen/Bachelor_final/rawhrdata.csv")
 hrdata1 <- read_csv("rawhrdata.csv")
-
+hrdata2 <- hrdata1
 #Filtering data with a lowpass filter
-library(gsignal)
-fs=10 # Sample frequency. 10 samples per second, i.e. 10 Hz
-Nyquist<-fs/2
-fpass <- c(0.2)
-wpass <- fpass / Nyquist
-but <- butter(5, wpass, "low")
+# library(gsignal)
+# fs=10 # Sample frequency. 10 samples per second, i.e. 10 Hz
+# Nyquist<-fs/2
+# fpass <- c(0.2)
+# wpass <- fpass / Nyquist
+# but <- butter(5, wpass, "low")
 
-#filtfilt runs the filter both forward and backward, correcting for the delay (aka phase-shift)
-hrdata2 <-filtfilt(but, hrdata1)
-hrdata2 <- as.data.frame(hrdata2)
+# #filtfilt runs the filter both forward and backward, correcting for the delay (aka phase-shift)
+# hrdata2 <-filtfilt(but, hrdata1)
+# hrdata2 <- as.data.frame(hrdata2)
+
 
 #renaming back to old names (only if filtered)
 library(data.table)
@@ -410,15 +427,15 @@ scaledhrdata <- as.data.frame(scaledhrdata)
 #Selecting columns to outlier-removal (keeping)
 scaledhrdataoutlierrm <- scaledhrdata %>% select(`001`,`002`,`003`,`004`,`005`,`006`,`007`,`008`,`009`,`013`,`014`,`015`,`016`,`017`,`018`,`019`,`020`,`021`,`022`,`023`,`024`,`025`,`026`,`027`,`028`,`029`,`030`,`031`,`033`,`034`,`035`,`036`,`037`,`038`,`039`)
 
-#remove outliers (z scores above and below 3) after scaling
-for(col in 1:ncol(scaledhrdataoutlierrm)) { # for-loop over columns
-  for(row in 3:nrow(scaledhrdataoutlierrm)-1){  #for-loop over rows
-    value = scaledhrdataoutlierrm[row,col]
-    if(value > 3 | value < -3){
-    scaledhrdataoutlierrm[row,col] <- mean(c(scaledhrdataoutlierrm[row-1,col]), scaledhrdataoutlierrm[row+1,col])
-    }
-  }
-}
+#remove outliers (z scores above and below 3) after scaling (does not work properly just yet)
+# for(col in 1:ncol(scaledhrdataoutlierrm)) { # for-loop over columns
+#   for(row in 2:(nrow(scaledhrdataoutlierrm)-1)){  #for-loop over rows
+#     value = scaledhrdataoutlierrm[row,col]
+#     if(value > 3 | value < -3){
+#     scaledhrdataoutlierrm[row,col] <- mean(c(scaledhrdataoutlierrm[row-1,col], scaledhrdataoutlierrm[row+1,col]))
+#     }
+#   }
+# }
 
 #Creating rowmeans of scaled heartrates
 scaledhrdataoutlierrm$meanHR <- rowMeans(scaledhrdataoutlierrm)
@@ -438,7 +455,7 @@ scaledhrdata1$meanfactHR <- rowMeans(factrowmean)
 fictrowmean <- scaledhrdata1 %>% 
   select(`002`,`004`, `006`, `008`, `014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`)
 
-scaledhrdata1$meanfictHR <- rowMeans((fictrowmean))
+scaledhrdata1$meanfictHR <- rowMeans(fictrowmean)
 ```
 
 #Dividing hrdata into two groups depending on the story sequence (fictfact or factfict)
@@ -502,12 +519,35 @@ pivotfictfactdf <- rbind(pivotfact, pivotfict)
 
 #Statistical models on heart rate data
 ```{r}
-hrmodel1 <- lmerTest::lmer(value ~ sentence_sen_mean + con + drift + abs(sentence_sen_mean)  + (1|Participant_number), data = pivotdf)
+#Models of sentiment analysis
+hrmodel1 <- lmerTest::lmer(value ~ sentence_sen_mean + con + drift + abs(sentence_sen_mean) + (1|Participant_number), data = pivotdf)
 summary(hrmodel1)
 
-hrmodel2 <- lmerTest::lmer(value ~ group:fictfact + (1|Participant_number), pivotfictfactdf)
+hrmodel2 <- lmerTest::lmer(value ~ sentence_sen_mean + con + drift + (1|Participant_number), data = pivotdf)
 summary(hrmodel2)
 
+hrmodel3 <- lmerTest::lmer(value ~ sentence_sen_mean + drift + (1|Participant_number), data = pivotdf)
+summary(hrmodel3)
+
+MuMIn::r.squaredGLMM(hrmodel1)
+MuMIn::r.squaredGLMM(hrmodel2)
+MuMIn::r.squaredGLMM(hrmodel3)
+
+#Models of fiction and facts
+hrmodel4 <- lmerTest::lmer(value ~ fictfact + drift + (1|Participant_number) + (1 | group), data = pivotfictfactdf)
+summary(hrmodel4)
+
+hrmodel5 <- lmerTest::lmer(value ~ group:fictfact + drift + (1|Participant_number), data = pivotfictfactdf)
+summary(hrmodel5)
+
+hrmodel6 <- lmerTest::lmer(value ~ fictfact + drift + (1|Participant_number:group), data = pivotfictfactdf)
+summary(hrmodel6)
+
+MuMIn::r.squaredGLMM(hrmodel4)
+MuMIn::r.squaredGLMM(hrmodel5)
+MuMIn::r.squaredGLMM(hrmodel6)
+
+#Not the best results - it keeps complaining about singular fit (maybe to much data?)
 ```
 
 
@@ -528,7 +568,7 @@ library(gtools)
 
 #For-loop for getting coefficients on statistical model: lm(meanhrdf ~ sentence_sen_df, combinedf)
 for( i in 1:nrow(con_df)){
-  if( i == 100){
+  if( i == 200){
     break
   }
   combinedf <- cbind(con_df,meanhrdf)
@@ -543,10 +583,101 @@ for( i in 1:nrow(con_df)){
 dfcoef <- as.data.frame(dfcoef)
 
 #The beta coefficient is highest at 16 datapoints
-plot(dfcoef$dfcoef[1:100], main = "Coefficients")
+plot(dfcoef$dfcoef[1:200], main = "Coefficients")
+
+#According to this investigation - 10 second delay gives a good effect (but it might be to much pushing)
+
+#Push the data
+pushedhrdata <- scaledhrdata1 %>% select(`001`,`003`, `005`, `007`, `009`, `013`, `015`, `017`, `019`,`021`,`023`,`025`,`027`,`029`,`031`, `034`, `036`, `038`,`002`,`004`, `006`, `008`, `014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`)
+
+for( i in 1:nrow(pushedhrdata)){
+  pushedhrdata <- pushedhrdata %>% mutate_all(.funs = funs(lag))
+  pushedhrdata <- na.replace(pushedhrdata, 0)
+  if( i == 100){
+    break
+  }
+}
+
+variablesnew <- scaledhrdata1 %>% select(drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
+pushedhrdata$hrmean <- rowMeans(pushedhrdata)
+pushedhrdata1 <- cbind(pushedhrdata, variablesnew)
+
 ```
 
+#Exploratory (dividing dataset into 10 stories each)
+```{r}
+#divide it into three parts
+dfdivided1 <- pushedhrdata1[1:4294,]
+dfdivided2 <- pushedhrdata1[4295:8969,]
+dfdivided3 <- pushedhrdata1[8970:14000,]
 
+pivotdiv1 <- dfdivided1 %>% pivot_longer(`001`:`002`:`003`:`004`:`005`:`006`:`007`:`008`:`009`:`013`:`014`:`015`:`016`:`017`:`018`:`019`:`020`:`021`:`022`:`023`:`024`:`025`:`026`:`027`:`028`:`029`:`030`:`031`:`033`:`034`:`035`:`036`:`037`:`038`:`039`, "Participant_number")
+
+pivotdiv2 <- dfdivided2 %>% pivot_longer(`001`:`002`:`003`:`004`:`005`:`006`:`007`:`008`:`009`:`013`:`014`:`015`:`016`:`017`:`018`:`019`:`020`:`021`:`022`:`023`:`024`:`025`:`026`:`027`:`028`:`029`:`030`:`031`:`033`:`034`:`035`:`036`:`037`:`038`:`039`, "Participant_number")
+
+pivotdiv3 <- dfdivided3 %>% pivot_longer(`001`:`002`:`003`:`004`:`005`:`006`:`007`:`008`:`009`:`013`:`014`:`015`:`016`:`017`:`018`:`019`:`020`:`021`:`022`:`023`:`024`:`025`:`026`:`027`:`028`:`029`:`030`:`031`:`033`:`034`:`035`:`036`:`037`:`038`:`039`, "Participant_number")
+
+mdiv1 <- lmerTest::lmer(value ~ sentence_sen_mean + drift + (1|Participant_number), data = pivotdiv1)
+mdiv2 <- lmerTest::lmer(value ~ sentence_sen_mean + drift + (1|Participant_number), data = pivotdiv2)
+mdiv3 <- lmerTest::lmer(value ~ sentence_sen_mean + drift + (1|Participant_number), data = pivotdiv3)
+
+summary(mdiv1)
+summary(mdiv2)
+summary(mdiv3)
+
+MuMIn::r.squaredGLMM(mdiv1)
+MuMIn::r.squaredGLMM(mdiv2)
+MuMIn::r.squaredGLMM(mdiv3)
+
+#Seemingly better results and no 'singular fit' message
+```
+
+#Filter exploration - only work if the filter in the beginning of the script is not applied
+#Spectral density plots
+```{r}
+del=1/10
+#Use a function to find the different spectral elements
+hrdf_spec_hr<-spectrum(scaledhrdata1$meanHR,plot=FALSE)
+#convert into understandable axes
+spx <- hrdf_spec$freq/del
+spy <- 2*hrdf_spec$spec
+plot(spy[1:1000]~spx[1:1000],xlab="frequency (Hz)",ylab="spectral density",type="l",col='darkgreen')
+
+hrdf_spec_sen<-spectrum(scaledhrdata1$sentence_sen_mean,plot=FALSE)
+#convert into understandable axes
+spx1 <- hrdf_spec_sen$freq/del
+spy1 <- 2*hrdf_spec_sen$spec
+plot(spy1[1:1000]~spx1[1:1000],xlab="frequency (Hz)",ylab="spectral density",type="l",col='darkgreen')
+
+hrdf_spec_fict<-spectrum(fictsubset$fictfact,plot=FALSE)
+#convert into understandable axes
+spx2 <- hrdf_spec_fict$freq/del
+spy2 <- 2*hrdf_spec_fict$spec
+plot(spy2[1:1000]~spx2[1:1000],xlab="frequency (Hz)",ylab="spectral density",type="l",col='darkgreen')
+```
+
+#Plots of hr data
+```{r}
+library(dygraphs)
+library(xts)
+
+#plot over meanHR and sentence_sen_mean
+subset_meanHR_sentencemean <- scaledhrdata1 %>% select(time, meanHR, sentence_sen_mean)
+subset_meanHR_sentencemean$normal<-fftfilt(rep(1, 10)/10, subset_meanHR_sentencemean$meanHR)
+subset_meanHR_sentencemean$meanHR=NULL
+
+p <- dygraph(subset_pushedmeanHR_sentencemean)
+p
+
+#Plot over pushedmeanHR and sentence_sen_mean
+subset_pushedmeanHR_sentencemean <- pushedhrdata1 %>% select(time, hrmean, sentence_sen_mean)
+subset_pushedmeanHR_sentencemean$normal<-fftfilt(rep(1, 10)/10, subset_pushedmeanHR_sentencemean$hrmean)
+subset_pushedmeanHR_sentencemean$hrmean=NULL
+
+q <- dygraph(subset_pushedmeanHR_sentencemean)
+q
+
+```
 
 
 This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
