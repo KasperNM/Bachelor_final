@@ -1,0 +1,568 @@
+---
+title: "Final bachelor document"
+author: "Kasper"
+date: "16/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Preprocessing of logdata: Sentiment analysis on police reports
+```{r}
+#Libraries
+pacman::p_load(tidyverse, lme4, dplyr)
+
+#Loading in the logfile
+logdata <- read_csv("log_data.csv")
+
+#loading in sentida-library
+if(!require("devtools")) install.packages("devtools")
+
+#From github
+devtools::install_github("Guscode/Sentida")
+
+library(Sentida)
+Sys.setlocale(category = "LC_ALL", locale = "UTF-8")
+
+#Calculating sentida scores from reports per story
+analysetextfile <- function(filename) {
+  filenamepath = paste("story_texts/", filename, sep = "")
+  file = read_file(filenamepath)
+  Sentida_mean = sentida(file, output = "mean")
+  Sentida_total = sentida(file, output = "total")
+  labels = str_match(filenamepath, "story_texts/Fiction_story([0-9]+).txt")
+  story_num = as.numeric(labels[2])
+  output <- data.frame(story_num, Sentida_mean, Sentida_total)
+}
+
+#Puts all the sentida scores into a dataframe
+hr = list.files(path = "story_texts/", pattern = "txt") %>% ## NB replace with your path to the files 
+    purrr::map_df(analysetextfile)
+
+#Sorting after storynumber
+#hr <- hr[order(hr$story_num),]
+
+#Merge it into logdata
+logdf <- merge(hr,logdata)
+
+
+#Making the fict/fact condition as factor and 0 and 1s
+logdf$Fict1Fact2 <- logdf$Fict1Fact2 - 1
+logdf$Fict1Fact2 <- as.factor(logdf$Fict1Fact2)
+
+```
+
+#Statistical models on behavioral data
+```{r}
+#Statistical models on behavioral data
+str(logdf)
+
+#model testing response as a function of whether the story is fictional or fact
+m1 <- lmerTest::lmer(data = logdf, response ~ Fict1Fact2 + (1|ID))
+summary(m1)
+
+#There is a significant difference between fict and fact
+
+#Simple model testing if sentida mean predicts response
+m3 <- lmerTest::lmer(data = logdf, response ~ Sentida_mean + (1|ID))
+summary(m3)
+
+#Model with both predictors
+m4 <- lmerTest::lmer(data = logdf, response ~ Sentida_mean + Fict1Fact2 + (1|ID))
+summary(m4)
+
+#Interactionmodel of sentida_mean and fictfact
+m5 <- lmerTest::lmer(data = logdf, response ~ Sentida_mean:Fict1Fact2 + (1|ID))
+summary(m5)
+
+#Interaction model of sentida_mean and fictfact
+m6 <- lmerTest::lmer(data = logdf, response ~ Sentida_mean*Fict1Fact2 + (1|ID))
+summary(m6)
+
+anova(m1, m3, m4, m5, m6)
+
+MuMIn::r.squaredGLMM(m1)
+MuMIn::r.squaredGLMM(m3)
+MuMIn::r.squaredGLMM(m4)
+MuMIn::r.squaredGLMM(m5)
+```
+
+#Preprocessing of Heart rate data 1. step (Filtering raw data)
+```{r}
+#Heartrate data
+#Function that loads in heartrate data 
+nyfunct <- function(filename) {
+  filenamepath = paste("heartrate_data/", filename, sep = "")
+  file = read_csv(filenamepath, col_names = F)
+  labels = str_match(filenamepath, "heartrate_data/([0-9]+)_([a-zA-Z]+)_heartrate_resamp.csv")
+  Participant_num = labels[2]
+  #Makes sure that all files only load in the first 14000 
+  output = as.data.frame(t(file[,1:14000]))
+  names(output)[1] = labels[2]
+  output
+}
+
+hrdata1 = list.files(path = "heartrate_data/", pattern = "resamp.csv") %>% ## NB replace with your path to the files 
+    purrr::map_dfc(nyfunct)
+
+#Remove two participants due to measurement error
+hrdata1 <- within(hrdata1, rm(`012`, `040`))
+
+#remove zeros
+for(col in 1:ncol(hrdata1)){
+  colmean <-  mean(hrdata1[,col])
+  for(row in 1:nrow(hrdata1)){
+    value = hrdata1[row,col]
+    if(value == 0.00){
+      hrdata1[row,col] <- colmean
+    }
+  }
+}
+
+#Saving the dataframe for later use
+write_csv(hrdata1, "/Users/kaspermichelsen/Bachelor_final/rawhrdata.csv")
+hrdata1 <- read_csv("rawhrdata.csv")
+
+#Filtering data with a lowpass filter
+library(gsignal)
+fs=10 # Sample frequency. 10 samples per second, i.e. 10 Hz
+Nyquist<-fs/2
+fpass <- c(0.2)
+wpass <- fpass / Nyquist
+but <- butter(5, wpass, "low")
+
+#filtfilt runs the filter both forward and backward, correcting for the delay (aka phase-shift)
+hrdata2 <-filtfilt(but, hrdata1)
+hrdata2 <- as.data.frame(hrdata2)
+
+#renaming back to old names (only if filtered)
+library(data.table)
+hrdata2 <- setnames(hrdata2, old = c("V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10", "V11", "V12", "V13", "V14", "V15", "V16", "V17", "V18", "V19", "V20", "V21", "V22", "V23", "V24", "V25", "V26", "V27", "V28", "V29", "V30", "V31", "V32", "V33", "V34", "V35"), new = c("001","002","003","004","005","006","007","008","009","013","014","015","016","017","018","019","020","021","022","023","024","025","026","027","028","029","030","031","033","034","035","036","037","038","039"), skip_absent = T)
+
+#Make a 'drift column'
+hrdata2$drift <- c(7000:-6999)
+```
+
+#Dividing into stories and adding sentida (per sentence and story means)
+```{r}
+#defining when a story is told during the scan
+story1 <- hrdata2[26:373,]
+story2 <- hrdata2[500:1045,]
+story3 <- hrdata2[1171:1440,]
+story4 <- hrdata2[1556:1899,]
+story5 <- hrdata2[2025:2297,]
+story6 <- hrdata2[2423:2653,]
+story7 <- hrdata2[2779:3135,]
+story8 <- hrdata2[3261:3627,]
+story9 <- hrdata2[3753:4010,]
+story10 <- hrdata2[4136:4294,]
+story11 <- hrdata2[4420:4581,]
+story12 <- hrdata2[4707:5004,]
+story13 <- hrdata2[5131:5425,]
+story14 <- hrdata2[5552:6035,]
+story15 <- hrdata2[6161:6576,]
+story16 <- hrdata2[6703:7098,]
+story17 <- hrdata2[7225:7556,]
+story18 <- hrdata2[7682:7940,]
+story19 <- hrdata2[8066:8601,]
+story20 <- hrdata2[8728:8969,]
+story21 <- hrdata2[9095:9316,]
+story22 <- hrdata2[9442:9902,]
+story23 <- hrdata2[10028:10409,]
+story24 <- hrdata2[10535:10803,]
+story25 <- hrdata2[10930:11364,]
+story26 <- hrdata2[11490:11735,]
+story27 <- hrdata2[11862:12296,]
+story28 <- hrdata2[12422:12694,]
+story29 <- hrdata2[12820:13034,]
+story30 <- hrdata2[13160:13462,]
+
+#summing stories
+therealstory <- rbind(story1, story2, story3, story4, story5, story6, story7, story8, story9, story10, story11, story12, story13, story14, story15, story16, story17, story18, story19, story20, story21, story22, story23, story24, story25, story26, story27, story28, story29, story30) 
+
+#Make a contrast column where it puts 1 everytime a story is told and 0 when there is not
+for(i in 1:nrow(hrdata2)) {
+  if (rownames(hrdata2)[i] %in% rownames(therealstory)) {
+    hrdata2$con[i] = 1
+  } else{
+    hrdata2$con[i] = 0
+  }
+}
+
+#Make a contrast column where it puts the sentida value as contrast every time a story is told and 0 when there is not
+for(i in 1:nrow(hrdata2)) {
+  hrdata2$sentence_number <- 0
+  hrdata2$sentence_sen_mean <- 0
+  hrdata2$sentence_sen_total <- 0
+  
+  if (rownames(hrdata2)[i] %in% rownames(story1)) {
+    hrdata2$sen[i] = hr$Sentida_mean[1]
+    hrdata2$storynum[i] = 1
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story2)) {
+    hrdata2$sen[i] = hr$Sentida_mean[2]
+    hrdata2$storynum[i] = 2
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story3)) {
+    hrdata2$sen[i] = hr$Sentida_mean[3]
+    hrdata2$storynum[i] = 3
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story4)) {
+    hrdata2$sen[i] = hr$Sentida_mean[4]
+    hrdata2$storynum[i] = 4
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story5)) {
+    hrdata2$sen[i] = hr$Sentida_mean[5]
+    hrdata2$storynum[i] = 5
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story6)) {
+    hrdata2$sen[i] = hr$Sentida_mean[6]
+    hrdata2$storynum[i] = 6
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story7)) {
+    hrdata2$sen[i] = hr$Sentida_mean[7]
+    hrdata2$storynum[i] = 7
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story8)) {
+    hrdata2$sen[i] = hr$Sentida_mean[8]
+    hrdata2$storynum[i] = 8
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story9)) {
+    hrdata2$sen[i] = hr$Sentida_mean[9]
+    hrdata2$storynum[i] = 9
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story10)) {
+    hrdata2$sen[i] = hr$Sentida_mean[10]
+    hrdata2$storynum[i] = 10
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story11)) {
+    hrdata2$sen[i] = hr$Sentida_mean[11]
+    hrdata2$storynum[i] = 11
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story12)) {
+    hrdata2$sen[i] = hr$Sentida_mean[12]
+    hrdata2$storynum[i] = 12
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story13)) {
+    hrdata2$sen[i] = hr$Sentida_mean[13]
+    hrdata2$storynum[i] = 13
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story14)) {
+    hrdata2$sen[i] = hr$Sentida_mean[14]
+    hrdata2$storynum[i] = 14
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story15)) {
+    hrdata2$sen[i] = hr$Sentida_mean[15]
+    hrdata2$storynum[i] = 15
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story16)) {
+    hrdata2$sen[i] = hr$Sentida_mean[16]
+    hrdata2$storynum[i] = 16
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story17)) {
+    hrdata2$sen[i] = hr$Sentida_mean[17]
+    hrdata2$storynum[i] = 17
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story18)) {
+    hrdata2$sen[i] = hr$Sentida_mean[18]
+    hrdata2$storynum[i] = 18
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story19)) {
+    hrdata2$sen[i] = hr$Sentida_mean[19]
+    hrdata2$storynum[i] = 19
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story20)) {
+    hrdata2$sen[i] = hr$Sentida_mean[20]
+    hrdata2$storynum[i] = 20
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story21)) {
+    hrdata2$sen[i] = hr$Sentida_mean[21]
+    hrdata2$storynum[i] = 21
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story22)) {
+    hrdata2$sen[i] = hr$Sentida_mean[22]
+    hrdata2$storynum[i] = 22
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story23)) {
+    hrdata2$sen[i] = hr$Sentida_mean[23]
+    hrdata2$storynum[i] = 23
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story24)) {
+    hrdata2$sen[i] = hr$Sentida_mean[24]
+    hrdata2$storynum[i] = 24
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story25)) {
+    hrdata2$sen[i] = hr$Sentida_mean[25]
+    hrdata2$storynum[i] = 25
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story26)) {
+    hrdata2$sen[i] = hr$Sentida_mean[26]
+    hrdata2$storynum[i] = 26
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story27)) {
+    hrdata2$sen[i] = hr$Sentida_mean[27]
+    hrdata2$storynum[i] = 27
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story28)) {
+    hrdata2$sen[i] = hr$Sentida_mean[28]
+    hrdata2$storynum[i] = 28
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story29)) {
+    hrdata2$sen[i] = hr$Sentida_mean[29]
+    hrdata2$storynum[i] = 29
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story30)) {
+    hrdata2$sen[i] = hr$Sentida_mean[30]
+    hrdata2$storynum[i] = 30
+  }
+  else {
+    hrdata2$sen[i] = 0
+    hrdata2$storynum[i] = 0
+  }
+}
+
+#Creating story intervals as a list
+story_intervals = list(c(26, 373), c(500, 1045), c(1171,1440), c(1556,1899), c(2025, 2297), c(2423, 2653), c(2779, 3135), c(3261, 3627), c(3753, 4010), c(4136, 4294), c(4420, 4581), c(4707, 5004), c(5131, 5425), c(5552, 6034), c(6161, 6576), c(6703, 7098), c(7225, 7556), c(7682, 7940), c(8066, 8601), c(8728, 8969), c(9095, 9316), c(9442, 9902), c(10028, 10409), c(10535, 10803), c(10930, 11364), c(11490, 11735), c(11862, 12296), c(12422, 12694), c(12820, 13034), c(13160, 13462))
+
+#Calculating sentida_scores per sentence
+#Make a function that puts the text into sentida-dictionary
+analyse_textfile_per_sentence <- function(filename) {
+  filenamepath = paste("story_texts/", filename, sep = "")
+  file = read_file(filenamepath)
+  file <- str_trim(file)
+  
+  #Making sentida scores for each sentence of the stories
+  sentida_sentence_mean <- c()
+  sentida_sentence_total <- c()
+  sentence_ratio <- c()
+  filesplit <- str_split(file, "\\.", simplify = T)
+
+  for (i in 1:length(filesplit)){
+    sentence <- filesplit[i]
+    # Add +1 since the dot is removed, but still counts into the total length
+   
+    does_containt_char = grepl("!", sentence, fixed=TRUE)
+    sentence_length_with_spaces_and_dot = nchar(sentence) + (if (does_containt_char) 0 else 1)
+    sentence <- str_trim(sentence)
+    if (sentence == ""){
+      next
+    }
+    
+    ratio <- sentence_length_with_spaces_and_dot/nchar(file)
+    
+    sentence_mean <- sentida(sentence, output = "mean")
+    sentence_total <- sentida(sentence, output = "total")
+    sentida_sentence_mean <-  c(sentida_sentence_mean, sentence_mean)
+    sentida_sentence_total <- c(sentida_sentence_total, sentence_total)
+    sentence_ratio <- c(sentence_ratio, ratio)
+  }
+
+  sentence_number <- 1:length(sentida_sentence_mean)
+  Sentida_mean = sentida(file, output = "mean")
+  Sentida_total = sentida(file, output = "total")
+  labels = str_match(filenamepath, "story_texts/Fiction_story([0-9]+).txt")
+  
+  story_num = as.numeric(labels[2])
+  interval <- story_intervals[[story_num]]
+  intervallength <- interval[2]-interval[1]
+  ranges <- round(intervallength*sentence_ratio)
+  cumranges <- cumsum(ranges)+interval[1]
+  cumranges <- c(interval[1], cumranges)
+  int_start <- cumranges[-length(cumranges)]
+  int_end <- cumranges[-1]
+  
+  output <- data.frame(story_num, Sentida_mean, Sentida_total, sentida_sentence_mean, sentida_sentence_total, sentence_number, sentence_ratio, int_start, int_end)
+}
+
+
+#Puts all the sentida scores into a dataframe
+sentence_analysis = list.files(path = "story_texts/", pattern = "txt") %>% ## NB replace with your path to the files 
+    purrr::map_df(analyse_textfile_per_sentence)
+
+#puts sentida-scores by sentence into heart rate data
+for (row in 1:nrow(sentence_analysis)){
+  start <- sentence_analysis$int_start[row]
+  end <- sentence_analysis$int_end[row]
+  for (j in start:end){
+    hrdata2$sentence_number[j] <- sentence_analysis$sentence_number[row]
+    hrdata2$sentence_sen_mean[j] <- sentence_analysis$sentida_sentence_mean[row]
+    hrdata2$sentence_sen_total[j] <- sentence_analysis$sentida_sentence_total[row]
+    
+  }
+}
+
+#Adding time variable
+hrdata2$time <- c(1:14000)
+```
+
+#Scale the raw data and remove outliers
+```{r}
+#separating variables that should not be scaled
+othervariables <- hrdata2 %>% select("con", "sentence_number", "storynum", "time")
+
+beforescaledf <- hrdata2
+#Scale everything
+scaledhrdata <- scale(hrdata2)
+scaledhrdata <- as.data.frame(scaledhrdata)
+
+#Selecting columns to outlier-removal (keeping)
+scaledhrdataoutlierrm <- scaledhrdata %>% select(`001`,`002`,`003`,`004`,`005`,`006`,`007`,`008`,`009`,`013`,`014`,`015`,`016`,`017`,`018`,`019`,`020`,`021`,`022`,`023`,`024`,`025`,`026`,`027`,`028`,`029`,`030`,`031`,`033`,`034`,`035`,`036`,`037`,`038`,`039`)
+
+#remove outliers (z scores above and below 3) after scaling
+for(col in 1:ncol(scaledhrdataoutlierrm)) { # for-loop over columns
+  for(row in 3:nrow(scaledhrdataoutlierrm)-1){  #for-loop over rows
+    value = scaledhrdataoutlierrm[row,col]
+    if(value > 3 | value < -3){
+    scaledhrdataoutlierrm[row,col] <- mean(c(scaledhrdataoutlierrm[row-1,col]), scaledhrdataoutlierrm[row+1,col])
+    }
+  }
+}
+
+#Creating rowmeans of scaled heartrates
+scaledhrdataoutlierrm$meanHR <- rowMeans(scaledhrdataoutlierrm)
+
+#seperating variables that needs to be merged with the outlier-removed hrdata
+scaledothervariables <-  scaledhrdata %>% select("drift", "sentence_sen_mean", "sentence_sen_total", "sen")
+
+#Binding the two dataframes together
+scaledhrdata1 <- cbind(scaledhrdataoutlierrm, scaledothervariables, othervariables)
+
+#Creating a meanhr for each condition in the main dataframe
+factrowmean <- scaledhrdata1 %>% 
+  select(`001`,`003`, `005`, `007`, `009`, `013`, `015`, `017`, `019`,`021`,`023`,`025`,`027`,`029`,`031`, `034`, `036`, `038`)
+
+scaledhrdata1$meanfactHR <- rowMeans(factrowmean)
+
+fictrowmean <- scaledhrdata1 %>% 
+  select(`002`,`004`, `006`, `008`, `014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`)
+
+scaledhrdata1$meanfictHR <- rowMeans((fictrowmean))
+```
+
+#Dividing hrdata into two groups depending on the story sequence (fictfact or factfict)
+```{r}
+#Dividing the dataset into participants having the same conditions
+factsubset <- scaledhrdata1 %>% 
+  select(`001`,`003`, `005`, `007`, `009`, `013`, `015`, `017`, `019`,`021`,`023`,`025`,`027`,`029`,`031`, `034`, `036`, `038`, drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
+
+fictsubset <- scaledhrdata1 %>% 
+  select(`002`,`004`, `006`, `008`, `014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`, drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
+
+#Creating new contrast in the two dataframes (1 for fact, -1 for fict, and 0 when no story)
+for(i in 1:nrow(factsubset)){
+  if (factsubset$storynum[i] == 0){
+    factsubset$fictfact[i] = 0
+  }
+  else if (factsubset$storynum[i] %% 2 == 1) {
+    factsubset$fictfact[i] = 1
+  }
+  else {
+    factsubset$fictfact[i] = -1
+  }
+} 
+
+for(i in 1:nrow(fictsubset)){
+  if (fictsubset$storynum[i] == 0){
+    fictsubset$fictfact[i] = 0
+  }
+  else if (fictsubset$storynum[i] %% 2 == 0) {
+    fictsubset$fictfact[i] = 1
+  }
+  else {
+    fictsubset$fictfact[i] = -1
+  }
+}
+```
+
+#Pivoting dataframes
+```{r}
+#Putting all heartrates into one column (make it easier to run statistical analysis)
+#Maindf (scaledhrdata1)
+pivotdf <- scaledhrdata1 %>% pivot_longer(`001`:`002`:`003`:`004`:`005`:`006`:`007`:`008`:`009`:`013`:`014`:`015`:`016`:`017`:`018`:`019`:`020`:`021`:`022`:`023`:`024`:`025`:`026`:`027`:`028`:`029`:`030`:`031`:`033`:`034`:`035`:`036`:`037`:`038`:`039`, "Participant_number")
+
+#Pivoting two different conditions
+pivotfact <- factsubset %>% 
+  pivot_longer(`001`:`003`:`005`:`007`: `009`: `013`: `015`: `017`: `019`:`021`:`023`:`025`:`027`:`029`:`031`: `034`: `036`: `038`, "Participant_number")
+
+pivotfact$group <- 1
+
+pivotfict <- fictsubset %>% 
+  pivot_longer(`002`:`004`: `006`: `008`: `014`: `016`: `018`: `020`:`022`:`024`:`026`:`028`:`030`:`033`: `035`: `037`: `039`, "Participant_number")
+
+pivotfict$group <- 2
+
+#Putting it into a single df
+pivotfictfactdf$group <- as.factor(pivotfictfactdf$group)
+pivotfictfactdf$fictfact <- as.factor(pivotfictfactdf$group)
+pivotfictfactdf <- rbind(pivotfact, pivotfict)
+
+```
+
+#Statistical models on heart rate data
+```{r}
+hrmodel1 <- lmerTest::lmer(value ~ sentence_sen_mean + con + drift + abs(sentence_sen_mean)  + (1|Participant_number), data = pivotdf)
+summary(hrmodel1)
+
+hrmodel2 <- lmerTest::lmer(value ~ group:fictfact + (1|Participant_number), pivotfictfactdf)
+summary(hrmodel2)
+
+```
+
+
+#Pushing the df corresponding to the best effect of sentida_sentence_mean (or con?)
+```{r}
+#
+meanhrdf <- scaledhrdata1$meanHR
+meanhrdf <- as.data.frame(meanhrdf)
+
+sentence_sen_df <- scaledhrdata1$sentence_sen_mean
+sentence_sen_df <- as.data.frame(sentence_sen_df)
+
+con_df <- scaledhrdata1$con
+con_df <- as.data.frame(con_df)
+
+dfcoef <- c()
+library(gtools)
+
+#For-loop for getting coefficients on statistical model: lm(meanhrdf ~ sentence_sen_df, combinedf)
+for( i in 1:nrow(con_df)){
+  if( i == 100){
+    break
+  }
+  combinedf <- cbind(con_df,meanhrdf)
+  m500 <- lm(meanhrdf ~ con_df, combinedf)
+  coef <- m500$coefficients["con_df"]
+  dfcoef <- c(dfcoef, coef)
+  meanhrdf <- meanhrdf %>% mutate_all(.funs = funs(lag))
+  meanhrdf <- na.replace(meanhrdf, 0)
+  
+}
+
+dfcoef <- as.data.frame(dfcoef)
+
+#The beta coefficient is highest at 16 datapoints
+plot(dfcoef$dfcoef[1:100], main = "Coefficients")
+```
+
+
+
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
