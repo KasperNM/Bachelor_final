@@ -32,6 +32,7 @@ pacman::p_load(tidyverse, lme4, dplyr)
 
 #Loading in the logfile
 logdata <- read_csv("log_data.csv")
+storyratings <- read_csv("story_ratings.csv")
 
 #loading in sentida-library
 if(!require("devtools")) install.packages("devtools")
@@ -63,10 +64,24 @@ hr = list.files(path = "story_texts/", pattern = "txt") %>% ## NB replace with y
 #Merge it into logdata
 logdf <- merge(hr,logdata)
 
+testing <- logdata %>% group_by(story_num) %>% summarise(response_mean = mean(response))
+testing1 <- merge(testing, hr, "story_num")
 
 #Making the fict/fact condition as factor and 0 and 1s
-logdf$Fict1Fact2 <- logdf$Fict1Fact2 - 1
+logdf["Fict1Fact2"][logdf["Fict1Fact2"] == "1"] <- "Fiction"
+logdf["Fict1Fact2"][logdf["Fict1Fact2"] == "2"] <- "Fact"
 logdf$Fict1Fact2 <- as.factor(logdf$Fict1Fact2)
+
+me <- mean(testing1$response_mean)
+testing1$story_num <- as.numeric(testing1$story_num)
+time1 <- ggplot(testing1, aes(x = story_num, y = response_mean)) + geom_point() + geom_point(aes(y = Sentida_mean + me), col = "red") + geom_smooth(method = lm) + ggtitle("")
+str(testing1)
+time1
+
+#ggplot(test2, aes(x = t, y = V2)) + geom_path() + geom_path(aes(y = V3), col = "red") + geom_path(aes(y = V4), col = "green") 
+
+ggplot(logdf, aes(x = Fict1Fact2, y = response, fill = Fict1Fact2)) + theme_minimal() + labs(x = "Fiction = 0 & fact = 1", y = "Mean story rating") + geom_bar(aes(fill=Fict1Fact2), stat='summary', fun.y = mean, width = 0.3) + stat_summary(fun.data = mean_se, geom = "errorbar", color = 'black', width = 0.1) + ggtitle("Mean story rating with errorbars")
+
 
 ```
 
@@ -79,6 +94,12 @@ str(logdf)
 m1 <- lmerTest::lmer(data = logdf, response ~ Fict1Fact2 + (1|ID))
 summary(m1)
 
+t.test(response ~ Fict1Fact2, data = logdf)
+
+t.test()
+plot()
+testlog <- logdf
+testlog$Sentida_mean <- as.factor(testlog$Sentida_mean)
 #There is a significant difference between fict and fact
 
 #Simple model testing if sentida mean predicts response
@@ -140,23 +161,37 @@ for(col in 1:ncol(hrdata1)){
 #Saving the dataframe for later use
 write_csv(hrdata1, "/Users/kaspermichelsen/Bachelor_final/rawhrdata.csv")
 hrdata1 <- read_csv("rawhrdata.csv")
-hrdata2 <- hrdata1
+#hrdata2 <- hrdata1
+hrdata1 <- as.matrix(hrdata1)
 #Filtering data with a lowpass filter
-# library(gsignal)
-# fs=10 # Sample frequency. 10 samples per second, i.e. 10 Hz
-# Nyquist<-fs/2
-# fpass <- c(0.2)
+library(gsignal)
+fs=10 # Sample frequency. 10 samples per second, i.e. 10 Hz
+Nyquist<-fs/2
+# fpass <- c(0.04)
 # wpass <- fpass / Nyquist
-# but <- butter(5, wpass, "low")
+# but <- butter(5, wpass, "high")
+# 
+# hrdata2 <-filtfilt(but, hrdata1)
+
+fpass1 <- c(0.15)
+wpass1 <- fpass1 / Nyquist
+but1 <- butter(5, wpass1, "low")
+
+hrdata3 <-filtfilt(but1, hrdata1)
+hrdata3 <- as.data.frame(hrdata3)
+
+# test2 <- cbind(t, hrdata1[,1], hrdata2[,1], hrdata3[,1])
+# test2 <- as.data.frame(test2)
+# 
+# ggplot(test2, aes(x = t, y = V2)) + geom_path() + geom_path(aes(y = V3), col = "red") + geom_path(aes(y = V4), col = "green") 
 
 # #filtfilt runs the filter both forward and backward, correcting for the delay (aka phase-shift)
-# hrdata2 <-filtfilt(but, hrdata1)
-# hrdata2 <- as.data.frame(hrdata2)
+hrdata2 <- hrdata3
 
-
+str(hrdata1subset1)
 #renaming back to old names (only if filtered)
 library(data.table)
-# hrdata2 <- setnames(hrdata2, old = c("V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10", "V11", "V12", "V13", "V14", "V15", "V16", "V17", "V18", "V19", "V20", "V21", "V22", "V23", "V24", "V25", "V26", "V27", "V28", "V29", "V30", "V31", "V32", "V33", "V34", "V35"), new = c("001","002","003","004","005","006","007","008","009","013","014","015","016","017","018","019","020","021","022","023","024","025","026","027","028","029","030","031","033","034","035","036","037","038","039"), skip_absent = T)
+hrdata2 <- setnames(hrdata2, old = c("V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10", "V11", "V12", "V13", "V14", "V15", "V16", "V17", "V18", "V19", "V20", "V21", "V22", "V23", "V24", "V25", "V26", "V27", "V28", "V29", "V30", "V31", "V32", "V33", "V34", "V35"), new = c("001","002","003","004","005","006","007","008","009","013","014","015","016","017","018","019","020","021","022","023","024","025","026","027","028","029","030","031","033","034","035","036","037","038","039"), skip_absent = T)
 
 #Make a 'drift column'
 hrdata2$drift <- c(7000:-6999)
@@ -437,6 +472,23 @@ scaledhrdataoutlierrm <- scaledhrdata %>% select(`001`,`002`,`003`,`004`,`005`,`
 #   }
 # }
 
+#New outlier function
+for(col in 1:ncol(scaledhrdataoutlierrm)) { # for-loop over columns
+  for(row in 2:(nrow(scaledhrdataoutlierrm)-1)){  #for-loop over rows
+    value = scaledhrdataoutlierrm[row,col]
+    if(value > 3){
+    scaledhrdataoutlierrm[row,col] <- 3
+    }
+    if(value < -3){
+      print(value)
+    scaledhrdataoutlierrm[row,col] <- -3  
+    }
+  }
+}
+
+plot(scaledhrdata1$`015`)
+plot(scaledhrdataoutlierrm$`015`)
+
 #Creating rowmeans of scaled heartrates
 scaledhrdataoutlierrm$meanHR <- rowMeans(scaledhrdataoutlierrm)
 
@@ -470,13 +522,13 @@ fictsubset <- scaledhrdata1 %>%
 #Creating new contrast in the two dataframes (1 for fact, -1 for fict, and 0 when no story)
 for(i in 1:nrow(factsubset)){
   if (factsubset$storynum[i] == 0){
-    factsubset$fictfact[i] = 0
+    factsubset$fictfact[i] = -1
   }
   else if (factsubset$storynum[i] %% 2 == 1) {
     factsubset$fictfact[i] = 1
   }
   else {
-    factsubset$fictfact[i] = -1
+    factsubset$fictfact[i] = 0
   }
 } 
 
@@ -488,7 +540,7 @@ for(i in 1:nrow(fictsubset)){
     fictsubset$fictfact[i] = 1
   }
   else {
-    fictsubset$fictfact[i] = -1
+    fictsubset$fictfact[i] = 0
   }
 }
 ```
@@ -511,22 +563,23 @@ pivotfict <- fictsubset %>%
 pivotfict$group <- 2
 
 #Putting it into a single df
-pivotfictfactdf$group <- as.factor(pivotfictfactdf$group)
-pivotfictfactdf$fictfact <- as.factor(pivotfictfactdf$group)
+
 pivotfictfactdf <- rbind(pivotfact, pivotfict)
+pivotfictfactdf$group <- as.factor(pivotfictfactdf$group)
+pivotfictfactdf$fictfact <- as.factor(pivotfictfactdf$fictfact)
 
 ```
 
 #Statistical models on heart rate data
 ```{r}
 #Models of sentiment analysis
-hrmodel1 <- lmerTest::lmer(value ~ sentence_sen_mean + con + drift + abs(sentence_sen_mean) + (1|Participant_number), data = pivotdf)
+hrmodel1 <- lmerTest::lmer(value ~ abs(sentence_sen_mean) + drift + (1|Participant_number), data = pivotdf)
 summary(hrmodel1)
 
-hrmodel2 <- lmerTest::lmer(value ~ sentence_sen_mean + con + drift + (1|Participant_number), data = pivotdf)
+hrmodel2 <- lmerTest::lmer(value ~ sentence_sen_mean + drift + (1|Participant_number), data = pivotdf)
 summary(hrmodel2)
 
-hrmodel3 <- lmerTest::lmer(value ~ sentence_sen_mean + drift + (1|Participant_number), data = pivotdf)
+hrmodel3 <- lmerTest::lmer(value ~ sentence_sen_mean + (1|Participant_number), data = pivotdf)
 summary(hrmodel3)
 
 MuMIn::r.squaredGLMM(hrmodel1)
@@ -534,7 +587,7 @@ MuMIn::r.squaredGLMM(hrmodel2)
 MuMIn::r.squaredGLMM(hrmodel3)
 
 #Models of fiction and facts
-hrmodel4 <- lmerTest::lmer(value ~ fictfact + drift + (1|Participant_number) + (1 | group), data = pivotfictfactdf)
+hrmodel4 <- lmerTest::lmer(value ~ fictfact + drift + (1|Participant_number), data = pivotfict)
 summary(hrmodel4)
 
 hrmodel5 <- lmerTest::lmer(value ~ group:fictfact + drift + (1|Participant_number), data = pivotfictfactdf)
@@ -543,9 +596,15 @@ summary(hrmodel5)
 hrmodel6 <- lmerTest::lmer(value ~ fictfact + drift + (1|Participant_number:group), data = pivotfictfactdf)
 summary(hrmodel6)
 
+hrmodel7 <- lmerTest::lmer(value ~ fictfactsentence_sen_mean + drift + (1|Participant_number) + (1|group), data = pivotfictfactdf)
+
+summary(hrmodel7)
+
 MuMIn::r.squaredGLMM(hrmodel4)
 MuMIn::r.squaredGLMM(hrmodel5)
 MuMIn::r.squaredGLMM(hrmodel6)
+
+
 
 #Not the best results - it keeps complaining about singular fit (maybe to much data?)
 ```
@@ -567,13 +626,13 @@ dfcoef <- c()
 library(gtools)
 
 #For-loop for getting coefficients on statistical model: lm(meanhrdf ~ sentence_sen_df, combinedf)
-for( i in 1:nrow(con_df)){
+for( i in 1:nrow(sentence_sen_df)){
   if( i == 200){
     break
   }
-  combinedf <- cbind(con_df,meanhrdf)
-  m500 <- lm(meanhrdf ~ con_df, combinedf)
-  coef <- m500$coefficients["con_df"]
+  combinedf <- cbind(sentence_sen_df,meanhrdf)
+  m500 <- lm(meanhrdf ~ sentence_sen_df, combinedf)
+  coef <- m500$coefficients["sentence_sen_df"]
   dfcoef <- c(dfcoef, coef)
   meanhrdf <- meanhrdf %>% mutate_all(.funs = funs(lag))
   meanhrdf <- na.replace(meanhrdf, 0)
@@ -593,7 +652,7 @@ pushedhrdata <- scaledhrdata1 %>% select(`001`,`003`, `005`, `007`, `009`, `013`
 for( i in 1:nrow(pushedhrdata)){
   pushedhrdata <- pushedhrdata %>% mutate_all(.funs = funs(lag))
   pushedhrdata <- na.replace(pushedhrdata, 0)
-  if( i == 100){
+  if( i == 80){
     break
   }
 }
@@ -625,6 +684,8 @@ summary(mdiv1)
 summary(mdiv2)
 summary(mdiv3)
 
+plot(mdiv1)
+
 MuMIn::r.squaredGLMM(mdiv1)
 MuMIn::r.squaredGLMM(mdiv2)
 MuMIn::r.squaredGLMM(mdiv3)
@@ -635,12 +696,14 @@ MuMIn::r.squaredGLMM(mdiv3)
 #Filter exploration - only work if the filter in the beginning of the script is not applied
 #Spectral density plots
 ```{r}
+library(dygraphs)
+library(xts)
 del=1/10
 #Use a function to find the different spectral elements
 hrdf_spec_hr<-spectrum(scaledhrdata1$meanHR,plot=FALSE)
 #convert into understandable axes
-spx <- hrdf_spec$freq/del
-spy <- 2*hrdf_spec$spec
+spx <- hrdf_spec_hr$freq/del
+spy <- 2*hrdf_spec_hr$spec
 plot(spy[1:1000]~spx[1:1000],xlab="frequency (Hz)",ylab="spectral density",type="l",col='darkgreen')
 
 hrdf_spec_sen<-spectrum(scaledhrdata1$sentence_sen_mean,plot=FALSE)
@@ -658,8 +721,20 @@ plot(spy2[1:1000]~spx2[1:1000],xlab="frequency (Hz)",ylab="spectral density",typ
 
 #Plots of hr data
 ```{r}
-library(dygraphs)
-library(xts)
+subset_meanHR_con <- scaledhrdata1 %>% select(time,`007`, con)
+subset_meanHR_con$normal<-fftfilt(rep(1, 10)/10, subset_meanHR_con$`007`)
+subset_meanHR_con$meanHR=NULL
+
+pp <- dygraph(subset_meanHR_con)
+pp
+
+#fictmodel
+subset_meanHR_fact <- factsubset %>% select(time,`023`, fictfact)
+subset_meanHR_fact$normal<-fftfilt(rep(1, 10)/10, subset_meanHR_fact$`023`)
+subset_meanHR_fact$meanHR=NULL
+
+pp1 <- dygraph(subset_meanHR_fact)
+pp1
 
 #plot over meanHR and sentence_sen_mean
 subset_meanHR_sentencemean <- scaledhrdata1 %>% select(time, meanHR, sentence_sen_mean)
