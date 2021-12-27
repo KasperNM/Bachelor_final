@@ -78,18 +78,43 @@ time1 <- ggplot(testing1, aes(x = story_num, y = response_mean)) + geom_point() 
 str(testing1)
 time1
 
+logdfmeans <- logdf %>% group_by(Fict1Fact2) %>% summarise(response_mean = mean(response))
+
 #ggplot(test2, aes(x = t, y = V2)) + geom_path() + geom_path(aes(y = V3), col = "red") + geom_path(aes(y = V4), col = "green") 
 
-ggplot(logdf, aes(x = Fict1Fact2, y = response, fill = Fict1Fact2)) + theme_minimal() + labs(x = "Fiction = 0 & fact = 1", y = "Mean story rating") + geom_bar(aes(fill=Fict1Fact2), stat='summary', fun.y = mean, width = 0.3) + stat_summary(fun.data = mean_se, geom = "errorbar", color = 'black', width = 0.1) + ggtitle("Mean story rating with errorbars")
-
+ggplot(logdf, aes(x = Fict1Fact2, y = response, fill = Fict1Fact2)) + theme_minimal() + labs(x = "Story condition", y = "Mean story rating") + geom_bar(aes(fill=Fict1Fact2), stat='summary', fun.y = mean, width = 0.3) + stat_summary(fun.data = mean_se, geom = "errorbar", color = 'black', width = 0.1) + ggtitle("Mean story rating with errorbars")
 
 ```
+#Assumptions on data
+```{r}
+install.packages("pastecs")
+sentimentassumptions <- ggplot(hr, aes(x = Sentida_mean)) +
+ geom_histogram(aes(y = ..density..), binwidth = 0.05) +
+ ggtitle("Sentida_mean per story") +
+ stat_function(fun = dnorm, args = list(mean = mean(hr$Sentida_mean, na.rm = TRUE),
+sd = sd(hr$Sentida_mean, na.rm = TRUE)), colour= "darkgreen", size = 1)+
+ theme_classic()
+sentimentassumptions
+#I plot the data in a qq_plot with the followong function:
+sentimentassumptions_qq <- ggplot(hr, aes(sample = Sentida_mean)) + stat_qq()+ stat_qq_line(colour = "red")
+sentimentassumptions_qq
+#Statdesc
+sentimentassumptions_stat <- round(pastecs::stat.desc(hr$Sentida_mean, basic = FALSE, norm = TRUE), digits = 2)
+sentimentassumptions_stat
+
+#HR plots
+HR_fict_qq <- ggplot(fictsubset, aes(sample = meanfictHR)) + stat_qq()+ stat_qq_line(colour = "red")
+HR_fict_qq
+```
+
+
 
 #Statistical models on behavioral data
 ```{r}
 #Statistical models on behavioral data
 str(logdf)
-
+groupedlogdf <- logdf %>% group_by(Fict1Fact2) %>% summarise(mean(response), sd(response), mean_se(response))
+groupedlogdf
 #model testing response as a function of whether the story is fictional or fact
 m1 <- lmerTest::lmer(data = logdf, response ~ Fict1Fact2 + (1|ID))
 summary(m1)
@@ -105,6 +130,7 @@ testlog$Sentida_mean <- as.factor(testlog$Sentida_mean)
 #Simple model testing if sentida mean predicts response
 m3 <- lmerTest::lmer(data = logdf, response ~ Sentida_mean + (1|ID))
 summary(m3)
+plot(m3)
 
 #Model with both predictors
 m4 <- lmerTest::lmer(data = logdf, response ~ Sentida_mean + Fict1Fact2 + (1|ID))
@@ -161,6 +187,8 @@ for(col in 1:ncol(hrdata1)){
 #Saving the dataframe for later use
 write_csv(hrdata1, "/Users/kaspermichelsen/Bachelor_final/rawhrdata.csv")
 hrdata1 <- read_csv("rawhrdata.csv")
+hrdataplot <- hrdata1
+hrdataplot$meanhr <- rowMeans(hrdataplot)
 #hrdata2 <- hrdata1
 hrdata1 <- as.matrix(hrdata1)
 #Filtering data with a lowpass filter
@@ -486,6 +514,22 @@ for(col in 1:ncol(scaledhrdataoutlierrm)) { # for-loop over columns
   }
 }
 
+# removeOuts <- function(ts, threshold){
+#   higher_threshold_condition <- ts > (mean(ts, na.rm = T) + (threshold*sd(ts, na.rm = T)))
+#   lower_threshold_condition <- ts < (mean(ts, na.rm = T) - (threshold*sd(ts, na.rm = T)))
+#   ts[higher_threshold_condition] <- mean(ts, na.rm = T) + (threshold *sd(ts, na.rm = T))
+#   ts[lower_threshold_condition] <- mean(ts, na.rm = T) - (threshold *sd(ts, na.rm = T))
+#   return(ts)
+# }
+# 
+# threshold = 3
+# 
+# scaledhr1noout <- no_outliersdf <- scaledhrdata %>% 
+#   mutate(`023` = removeOuts(`023`, threshold))
+# 
+# ggplot(data = scaledhrdata1) + geom_path(aes(time, `023`, color = "P1")) + labs(x = "time", y = "HR") + theme_classic() + ggtitle("Heart rate raw data")
+# ggplot(data = scaledhr1noout) + geom_path(aes(time, `023`, color = "P1")) + labs(x = "time", y = "HR") + theme_classic() + ggtitle("Heart rate raw data")
+
 plot(scaledhrdata1$`015`)
 plot(scaledhrdataoutlierrm$`015`)
 
@@ -503,32 +547,32 @@ factrowmean <- scaledhrdata1 %>%
   select(`001`,`003`, `005`, `007`, `009`, `013`, `015`, `017`, `019`,`021`,`023`,`025`,`027`,`029`,`031`, `034`, `036`, `038`)
 
 scaledhrdata1$meanfactHR <- rowMeans(factrowmean)
+factsubset$meanfactHR <- rowMeans(factrowmean)
 
 fictrowmean <- scaledhrdata1 %>% 
   select(`002`,`004`, `006`, `008`, `014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`)
 
 scaledhrdata1$meanfictHR <- rowMeans(fictrowmean)
+fictsubset$meanfictHR <- rowMeans(fictrowmean)
 ```
 
 #Dividing hrdata into two groups depending on the story sequence (fictfact or factfict)
 ```{r}
 #Dividing the dataset into participants having the same conditions
-factsubset <- scaledhrdata1 %>% 
-  select(`001`,`003`, `005`, `007`, `009`, `013`, `015`, `017`, `019`,`021`,`023`,`025`,`027`,`029`,`031`, `034`, `036`, `038`, drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
+factsubset <- scaledhrdata1 %>% select(`001`,`003`, `005`, `007`, `009`, `013`, `015`, `017`, `019`,`021`,`023`,`025`,`027`,`029`,`031`, `034`, `036`, `038`, drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
 
-fictsubset <- scaledhrdata1 %>% 
-  select(`002`,`004`, `006`, `008`, `014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`, drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
+fictsubset <- scaledhrdata1 %>% select(`002`,`004`, `006`, `008`, `014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`, drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
 
 #Creating new contrast in the two dataframes (1 for fact, -1 for fict, and 0 when no story)
 for(i in 1:nrow(factsubset)){
   if (factsubset$storynum[i] == 0){
-    factsubset$fictfact[i] = -1
+    factsubset$fictfact[i] = 0
   }
   else if (factsubset$storynum[i] %% 2 == 1) {
     factsubset$fictfact[i] = 1
   }
   else {
-    factsubset$fictfact[i] = 0
+    factsubset$fictfact[i] = -1
   }
 } 
 
@@ -540,7 +584,7 @@ for(i in 1:nrow(fictsubset)){
     fictsubset$fictfact[i] = 1
   }
   else {
-    fictsubset$fictfact[i] = 0
+    fictsubset$fictfact[i] = -1
   }
 }
 ```
@@ -568,6 +612,7 @@ pivotfictfactdf <- rbind(pivotfact, pivotfict)
 pivotfictfactdf$group <- as.factor(pivotfictfactdf$group)
 pivotfictfactdf$fictfact <- as.factor(pivotfictfactdf$fictfact)
 
+pivotdf$con <- as.factor(pivotdf$con)
 ```
 
 #Statistical models on heart rate data
@@ -575,6 +620,11 @@ pivotfictfactdf$fictfact <- as.factor(pivotfictfactdf$fictfact)
 #Models of sentiment analysis
 hrmodel1 <- lmerTest::lmer(value ~ abs(sentence_sen_mean) + drift + (1|Participant_number), data = pivotdf)
 summary(hrmodel1)
+str(pivotdf)
+
+hrmodelcon <- lmerTest::lmer(value ~ con + drift + (1|Participant_number), data = pivotdf)
+summary(hrmodelcon)
+MuMIn::r.squaredGLMM(hrmodelcon)
 
 hrmodel2 <- lmerTest::lmer(value ~ sentence_sen_mean + drift + (1|Participant_number), data = pivotdf)
 summary(hrmodel2)
@@ -582,21 +632,70 @@ summary(hrmodel2)
 hrmodel3 <- lmerTest::lmer(value ~ sentence_sen_mean + (1|Participant_number), data = pivotdf)
 summary(hrmodel3)
 
+MuMIn::r.squaredGLMM(hrmodelcon)
 MuMIn::r.squaredGLMM(hrmodel1)
 MuMIn::r.squaredGLMM(hrmodel2)
 MuMIn::r.squaredGLMM(hrmodel3)
 
 #Models of fiction and facts
+as.factor(fictsubset$fictfact)
+
 hrmodel4 <- lmerTest::lmer(value ~ fictfact + drift + (1|Participant_number), data = pivotfict)
 summary(hrmodel4)
 
-hrmodel5 <- lmerTest::lmer(value ~ group:fictfact + drift + (1|Participant_number), data = pivotfictfactdf)
+pivotfict$fictfact <- as.factor(pivotfict$fictfact)
+pivotfact$fictfact <- as.factor(pivotfact$fictfact)
+
+hrmodel4_fact <- lmerTest::lmer(value ~ fictfact + drift + (1|Participant_number), data = pivotfact)
+
+
+hrmodel5_fict <- lmerTest::lmer(value ~ 1 + fictfact + drift + (1|Participant_number), data = pivotfict)
+str(pivotfict)
+summary(hrmodel4_fact)
+summary(hrmodel5_fict)
+
+hrmodel5 <- lmerTest::lmer(value ~ fictfact + drift + (1|Participant_number), data = pivotfictfactdf)
 summary(hrmodel5)
 
-hrmodel6 <- lmerTest::lmer(value ~ fictfact + drift + (1|Participant_number:group), data = pivotfictfactdf)
+str(fictsubset)
+fictsubset$fictfact <- as.factor(fictsubset$fictfact)
+anovamodel1 <- aov(formula = meanfictHR ~ fictfact, data = fictsubset)
+summary(anovamodel1)
+TukeyHSD(anovamodel1)
+plot(anovamodel1)
+
+pacman::p_load(tidyverse, pastecs, MuMIn, car, multcomp, WRS2, lme4, reshape2)
+summary(glht(aov(meanfictHR ~ fictfact, fictsubset), linfct = mcp(fictfact = "Tukey")))
+
+summary(glht(aov(meanfactHR ~ fictfact, factsubset), linfct = mcp(fictfact = "Tukey")))
+
+factsubset$fictfact <- as.factor(factsubset$fictfact)
+anovamodel2 <- aov(formula = meanfactHR ~ fictfact, data = factsubset)
+summary(anovamodel2)
+TukeyHSD(anovamodel2)
+
+
+
+library(rstatix)
+pivotfictfactdf$Participant_number <- as.factor(pivotfictfactdf$Participant_number)
+str(pivotfictfactdf)
+
+res.aov <- anova_test(
+  data = pivotfict, dv = value, wid = Participant_number,
+  within = c(Participant_number)
+  )
+get_anova_table(res.aov)
+
+testaov <- aov(formula = value ~ fictfact + Error(Participant_number/group), data = pivotfictfactdf)
+summary(testaov)
+TukeyHSD(testaov)
+
+pivotfictfactdf$value[318519]
+
+hrmodel6 <- lmerTest::lmer(value ~ group*fictfact + drift + (1|Participant_number), data = pivotfictfactdf)
 summary(hrmodel6)
 
-hrmodel7 <- lmerTest::lmer(value ~ fictfactsentence_sen_mean + drift + (1|Participant_number) + (1|group), data = pivotfictfactdf)
+hrmodel7 <- lmerTest::lmer(value ~ fictfact + sentence_sen_mean + drift + (1|Participant_number) + (1|group), data = pivotfictfactdf)
 
 summary(hrmodel7)
 
@@ -604,7 +703,8 @@ MuMIn::r.squaredGLMM(hrmodel4)
 MuMIn::r.squaredGLMM(hrmodel5)
 MuMIn::r.squaredGLMM(hrmodel6)
 
-
+ting <- as.formula(hrmodelcon)
+plot(ting, 2)
 
 #Not the best results - it keeps complaining about singular fit (maybe to much data?)
 ```
@@ -642,17 +742,17 @@ for( i in 1:nrow(sentence_sen_df)){
 dfcoef <- as.data.frame(dfcoef)
 
 #The beta coefficient is highest at 16 datapoints
-plot(dfcoef$dfcoef[1:200], main = "Coefficients")
+plot(dfcoef$dfcoef[1:50], main = "Coefficients")
 
 #According to this investigation - 10 second delay gives a good effect (but it might be to much pushing)
 
 #Push the data
-pushedhrdata <- scaledhrdata1 %>% select(`001`,`003`, `005`, `007`, `009`, `013`, `015`, `017`, `019`,`021`,`023`,`025`,`027`,`029`,`031`, `034`, `036`, `038`,`002`,`004`, `006`, `008`, `014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`)
+pushedhrdata <- scaledhrdata1 %>% select(`001`,`003`, `005`, `007`, `009`, `013`, `015`, `017`,`019`,`021`,`023`,`025`,`027`,`029`,`031`, `034`, `036`, `038`,`002`,`004`, `006`, `008`,`014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`)
 
 for( i in 1:nrow(pushedhrdata)){
   pushedhrdata <- pushedhrdata %>% mutate_all(.funs = funs(lag))
   pushedhrdata <- na.replace(pushedhrdata, 0)
-  if( i == 80){
+  if( i == 23){
     break
   }
 }
@@ -700,11 +800,12 @@ library(dygraphs)
 library(xts)
 del=1/10
 #Use a function to find the different spectral elements
-hrdf_spec_hr<-spectrum(scaledhrdata1$meanHR,plot=FALSE)
+hrdf_spec_hr<-spectrum(hrdataplot$meanhr,plot=FALSE)
 #convert into understandable axes
 spx <- hrdf_spec_hr$freq/del
 spy <- 2*hrdf_spec_hr$spec
-plot(spy[1:1000]~spx[1:1000],xlab="frequency (Hz)",ylab="spectral density",type="l",col='darkgreen')
+plot(spy[1:1000]~spx[1:1000],xlab="frequency (Hz)",ylab="spectral density",type="l",col='darkgreen', main = "Spectral elements of raw HR data")
+?plot
 
 hrdf_spec_sen<-spectrum(scaledhrdata1$sentence_sen_mean,plot=FALSE)
 #convert into understandable axes
