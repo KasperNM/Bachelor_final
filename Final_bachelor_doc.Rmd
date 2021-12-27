@@ -195,17 +195,17 @@ hrdata1 <- as.matrix(hrdata1)
 library(gsignal)
 fs=10 # Sample frequency. 10 samples per second, i.e. 10 Hz
 Nyquist<-fs/2
-# fpass <- c(0.04)
-# wpass <- fpass / Nyquist
-# but <- butter(5, wpass, "high")
-# 
-# hrdata2 <-filtfilt(but, hrdata1)
+fpass <- c(0.04)
+wpass <- fpass / Nyquist
+but <- butter(5, wpass, "high")
+
+hrdata2 <-filtfilt(but, hrdata1)
 
 fpass1 <- c(0.15)
 wpass1 <- fpass1 / Nyquist
 but1 <- butter(5, wpass1, "low")
 
-hrdata3 <-filtfilt(but1, hrdata1)
+hrdata3 <-filtfilt(but1, hrdata2)
 hrdata3 <- as.data.frame(hrdata3)
 
 # test2 <- cbind(t, hrdata1[,1], hrdata2[,1], hrdata3[,1])
@@ -618,7 +618,7 @@ pivotdf$con <- as.factor(pivotdf$con)
 #Statistical models on heart rate data
 ```{r}
 #Models of sentiment analysis
-hrmodel1 <- lmerTest::lmer(value ~ abs(sentence_sen_mean) + drift + (1|Participant_number), data = pivotdf)
+hrmodel1 <- lmerTest::lmer(value ~ abs(sentence_sen_mean) + (1|Participant_number), data = pivotdf)
 summary(hrmodel1)
 str(pivotdf)
 
@@ -626,16 +626,20 @@ hrmodelcon <- lmerTest::lmer(value ~ con + drift + (1|Participant_number), data 
 summary(hrmodelcon)
 MuMIn::r.squaredGLMM(hrmodelcon)
 
-hrmodel2 <- lmerTest::lmer(value ~ sentence_sen_mean + drift + (1|Participant_number), data = pivotdf)
+hrmodel2 <- lmerTest::lmer(value ~ sentence_sen_mean + (1|Participant_number), data = pivotdf)
 summary(hrmodel2)
 
 hrmodel3 <- lmerTest::lmer(value ~ sentence_sen_mean + (1|Participant_number), data = pivotdf)
 summary(hrmodel3)
 
+hrmodel3pushed <- lmerTest::lmer(value ~ sentence_sen_mean + (1|Participant_number), data = pivotfictfactdfpushed)
+
 MuMIn::r.squaredGLMM(hrmodelcon)
 MuMIn::r.squaredGLMM(hrmodel1)
 MuMIn::r.squaredGLMM(hrmodel2)
 MuMIn::r.squaredGLMM(hrmodel3)
+
+summary(hrmodel3pushed)
 
 #Models of fiction and facts
 as.factor(fictsubset$fictfact)
@@ -646,16 +650,16 @@ summary(hrmodel4)
 pivotfict$fictfact <- as.factor(pivotfict$fictfact)
 pivotfact$fictfact <- as.factor(pivotfact$fictfact)
 
-hrmodel4_fact <- lmerTest::lmer(value ~ fictfact + drift + (1|Participant_number), data = pivotfact)
+hrmodel4_fact <- lmerTest::lmer(value ~ fictfact + (1|Participant_number), data = pivotfact)
 
-
-hrmodel5_fict <- lmerTest::lmer(value ~ 1 + fictfact + drift + (1|Participant_number), data = pivotfict)
-str(pivotfict)
+hrmodel5_fict <- lmerTest::lmer(value ~ 1 + fictfact + (1|Participant_number), data = pivotfict)
 summary(hrmodel4_fact)
 summary(hrmodel5_fict)
 
 hrmodel5 <- lmerTest::lmer(value ~ fictfact + drift + (1|Participant_number), data = pivotfictfactdf)
 summary(hrmodel5)
+
+?select
 
 str(fictsubset)
 fictsubset$fictfact <- as.factor(fictsubset$fictfact)
@@ -664,7 +668,6 @@ summary(anovamodel1)
 TukeyHSD(anovamodel1)
 plot(anovamodel1)
 
-pacman::p_load(tidyverse, pastecs, MuMIn, car, multcomp, WRS2, lme4, reshape2)
 summary(glht(aov(meanfictHR ~ fictfact, fictsubset), linfct = mcp(fictfact = "Tukey")))
 
 summary(glht(aov(meanfactHR ~ fictfact, factsubset), linfct = mcp(fictfact = "Tukey")))
@@ -692,7 +695,7 @@ TukeyHSD(testaov)
 
 pivotfictfactdf$value[318519]
 
-hrmodel6 <- lmerTest::lmer(value ~ group*fictfact + drift + (1|Participant_number), data = pivotfictfactdf)
+hrmodel6 <- lmerTest::lmer(value ~ fictfact + (1|Participant_number), data = pivotfictfactdf)
 summary(hrmodel6)
 
 hrmodel7 <- lmerTest::lmer(value ~ fictfact + sentence_sen_mean + drift + (1|Participant_number) + (1|group), data = pivotfictfactdf)
@@ -752,7 +755,7 @@ pushedhrdata <- scaledhrdata1 %>% select(`001`,`003`, `005`, `007`, `009`, `013`
 for( i in 1:nrow(pushedhrdata)){
   pushedhrdata <- pushedhrdata %>% mutate_all(.funs = funs(lag))
   pushedhrdata <- na.replace(pushedhrdata, 0)
-  if( i == 23){
+  if( i == 35){
     break
   }
 }
@@ -791,6 +794,68 @@ MuMIn::r.squaredGLMM(mdiv2)
 MuMIn::r.squaredGLMM(mdiv3)
 
 #Seemingly better results and no 'singular fit' message
+#fict and fact exploration
+factsubsetpushed <- pushedhrdata1 %>% select(`001`,`003`, `005`, `007`, `009`, `013`, `015`, `017`, `019`,`021`,`023`,`025`,`027`,`029`,`031`, `034`, `036`, `038`, drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
+
+fictsubsetpushed <- pushedhrdata1 %>% select(`002`,`004`, `006`, `008`, `014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`, drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
+
+#Creating new contrast in the two dataframes (1 for fact, -1 for fict, and 0 when no story)
+for(i in 1:nrow(factsubsetpushed)){
+  if (factsubsetpushed$storynum[i] == 0){
+    factsubsetpushed$fictfact[i] = 0
+  }
+  else if (factsubsetpushed$storynum[i] %% 2 == 1) {
+    factsubsetpushed$fictfact[i] = 1
+  }
+  else {
+    factsubsetpushed$fictfact[i] = -1
+  }
+} 
+
+for(i in 1:nrow(fictsubsetpushed)){
+  if (fictsubsetpushed$storynum[i] == 0){
+    fictsubsetpushed$fictfact[i] = 0
+  }
+  else if (fictsubsetpushed$storynum[i] %% 2 == 0) {
+    fictsubsetpushed$fictfact[i] = 1
+  }
+  else {
+    fictsubsetpushed$fictfact[i] = -1
+  }
+}
+
+pivotfactpushed <- factsubsetpushed %>% 
+  pivot_longer(`001`:`003`:`005`:`007`: `009`: `013`: `015`: `017`: `019`:`021`:`023`:`025`:`027`:`029`:`031`: `034`: `036`: `038`, "Participant_number")
+
+pivotfact$group <- 1
+
+pivotfictpushed <- fictsubsetpushed %>% 
+  pivot_longer(`002`:`004`: `006`: `008`: `014`: `016`: `018`: `020`:`022`:`024`:`026`:`028`:`030`:`033`: `035`: `037`: `039`, "Participant_number")
+
+pivotfict$group <- 2
+
+pivotfictpushed$fictfact <- as.factor(pivotfictpushed$fictfact)
+pivotfactpushed$fictfact <- as.factor(pivotfactpushed$fictfact)
+hrmodel5_fict_pushed <- lmerTest::lmer(value ~ 1 + fictfact + drift + (1|Participant_number), data = pivotfictpushed)
+hrmodel4_fact_pushed <- lmerTest::lmer(value ~ 1 + fictfact + drift + (1|Participant_number), data = pivotfactpushed)
+str(pivotfict)
+
+pivotfictfactdfpushed <- rbind(pivotfactpushed, pivotfictpushed)
+
+pivotfictfactdfpushed$fictfact <- as.factor(pivotfictfactdfpushed$fictfact)
+
+
+summary(hrmodel4_fact_pushed)
+summary(hrmodel4_fact)
+summary(hrmodel5_fict)
+summary(hrmodel5_fict_pushed)
+
+hrmodel6 <- lmerTest::lmer(value ~ fictfact + (1|Participant_number), data = pivotfictfactdf)
+summary(hrmodel6)
+
+hrmodel6pushed <- lmerTest::lmer(value ~ fictfact + (1|Participant_number), data = pivotfictfactdfpushed)
+summary(hrmodel6pushed)
+
 ```
 
 #Filter exploration - only work if the filter in the beginning of the script is not applied
