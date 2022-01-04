@@ -1,0 +1,1129 @@
+---
+title: "Final bachelor document"
+author: "Kasper"
+date: "16/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Bachelor data analysis
+
+#Hypothesis
+Hypotheses:
+
+Hypothesis 1: The overall (HR and responses) emotional experience is different in fictional and factual stories
+
+Hypothesis 2: The sentiment of the stories have an effect on the overall experience of the story
+
+Hypothesis 3: Heart rate is modulated by the sentiment of the stories 
+
+Post hoc exploratory analysis - split the dataset up - push the data - run analysis again
+
+Maybe: see if mean responses correspond to HRV data
+
+
+#Preprocessing of logdata: Sentiment analysis on police reports
+```{r}
+#Libraries
+pacman::p_load(tidyverse, lme4, dplyr, gsignal)
+
+#Loading in the logfile
+logdata <- read_csv("log_data.csv")
+storyratings <- read_csv("story_ratings.csv")
+
+#loading in sentida-library
+if(!require("devtools")) install.packages("devtools")
+
+#From github
+devtools::install_github("Guscode/Sentida")
+
+library(Sentida)
+Sys.setlocale(category = "LC_ALL", locale = "UTF-8")
+
+#Calculating sentida scores from reports per story
+analysetextfile <- function(filename) {
+  filenamepath = paste("story_texts/", filename, sep = "")
+  file = read_file(filenamepath)
+  Sentida_mean = sentida(file, output = "mean")
+  Sentida_total = sentida(file, output = "total")
+  labels = str_match(filenamepath, "story_texts/Fiction_story([0-9]+).txt")
+  story_num = as.numeric(labels[2])
+  output <- data.frame(story_num, Sentida_mean, Sentida_total)
+}
+
+#Puts all the sentida scores into a dataframe
+hr = list.files(path = "story_texts/", pattern = "txt") %>% ## NB replace with your path to the files 
+    purrr::map_df(analysetextfile)
+
+#Sorting after storynumber
+#hr <- hr[order(hr$story_num),]
+
+#Merge it into logdata
+logdf <- merge(hr,logdata)
+
+mean(hrdata1)
+sd(hrdata1)
+
+testing <- logdata %>% group_by(story_num) %>% summarise(response_mean = mean(response))
+testing1 <- merge(testing, hr, "story_num")
+
+#Making the fict/fact condition as factor and 0 and 1s
+logdf["Fict1Fact2"][logdf["Fict1Fact2"] == "1"] <- "Fiction"
+logdf["Fict1Fact2"][logdf["Fict1Fact2"] == "2"] <- "Fact"
+logdf$Fict1Fact2 <- as.factor(logdf$Fict1Fact2)
+
+me <- mean(testing1$response_mean)
+testing1$story_num <- as.numeric(testing1$story_num)
+time1 <- ggplot(testing1, aes(x = story_num, y = response_mean)) + geom_point() + geom_point(aes(y = Sentida_mean + me), col = "red") + geom_smooth(method = lm) + ggtitle("")
+str(testing1)
+time1
+
+logdfmeans <- logdf %>% group_by(Fict1Fact2) %>% summarise(response_mean = mean(response))
+
+#ggplot(test2, aes(x = t, y = V2)) + geom_path() + geom_path(aes(y = V3), col = "red") + geom_path(aes(y = V4), col = "green") 
+
+ggplot(logdf, aes(x = Fict1Fact2, y = response, fill = Fict1Fact2)) + theme_minimal() + labs(x = "Story condition", y = "Mean story rating") + geom_bar(aes(fill=Fict1Fact2), stat='summary', fun.y = mean, width = 0.3) + stat_summary(fun.data = mean_se, geom = "errorbar", color = 'black', width = 0.1) + ggtitle("Mean story rating with errorbars")
+
+str(logdf)
+logdf_fictfact <- logdf %>% group_by(Fict1Fact2, story_num) %>% summarise(mean(response), sd(response))
+```
+#Assumptions on data
+```{r}
+install.packages("pastecs")
+sentimentassumptions <- ggplot(hr, aes(x = Sentida_mean)) +
+ geom_histogram(aes(y = ..density..), binwidth = 0.05) +
+ ggtitle("Sentida_mean per story") +
+ stat_function(fun = dnorm, args = list(mean = mean(hr$Sentida_mean, na.rm = TRUE),
+sd = sd(hr$Sentida_mean, na.rm = TRUE)), colour= "darkgreen", size = 1)+
+ theme_classic()
+sentimentassumptions
+#I plot the data in a qq_plot with the followong function:
+sentimentassumptions_qq <- ggplot(logdf, aes(sample = response)) + stat_qq()+ stat_qq_line(colour = "red")
+sentimentassumptions_qq
+
+responseqq <- ggplot(logdf, aes(sample = response)) + stat_qq()+ stat_qq_line(colour = "red")
+responseqq
+
+round(pastecs::stat.desc(logdf$response, basic = FALSE, norm = TRUE), digits = 2)
+barplot(logdf_fictfact$`mean(response)`)
+#Statdesc
+sentimentassumptions_stat <- round(pastecs::stat.desc(logdf$Sentida_mean, basic = FALSE, norm = TRUE), digits = 2)
+sentimentassumptions_stat
+
+#HR plots
+HR_fict_qq <- ggplot(fictsubset, aes(sample = meanfictHR)) + stat_qq()+ stat_qq_line(colour = "red")
+HR_fict_qq
+
+hist(logdf$response)
+
+kingkongttt <- resid(ttt)
+
+```
+
+
+
+#Statistical models on behavioral data
+```{r}
+#Statistical models on behavioral data
+str(logdf)
+groupedlogdf <- logdf %>% group_by(Fict1Fact2) %>% summarise(mean(response), sd(response), mean_se(response))
+groupedlogdf
+#model testing response as a function of whether the story is fictional or fact
+m1 <- lmerTest::lmer(data = logdf, response ~ Fict1Fact2 + (1|ID))
+summary(m1)
+
+ttt <- t.test(response ~ Fict1Fact2, data = logdf)
+
+t.test()
+plot()
+testlog <- logdf
+testlog$Sentida_mean <- as.factor(testlog$Sentida_mean)
+#There is a significant difference between fict and fact
+
+#Simple model testing if sentida mean predicts response
+m3 <- lmerTest::lmer(data = logdf, response ~ Sentida_mean + (1|ID))
+m3_total <- lmerTest::lmer(data = logdf, response ~ Sentida_total + (1|ID))
+
+m3test <- lm(data = testing1, response_mean ~ Sentida_mean)
+summary(m3)
+summary(m3_total)
+summary(m3test)
+plot(m3)
+m3_abs <- lmerTest::lmer(data = logdf, response ~ abs(Sentida_mean) + (1|ID))
+summary(m3_abs)
+resm3 <- resid(m3)
+qqnorm(resm3)
+resabsm3 <- resid(m3_abs)
+plot(m3_abs)
+qqnorm(resabsm3)
+
+#Model with both predictors
+m4 <- lmerTest::lmer(data = logdf, response ~ Sentida_mean + Fict1Fact2 + (1|ID))
+summary(m4)
+
+#Interactionmodel of sentida_mean and fictfact
+m5 <- lmerTest::lmer(data = logdf, response ~ Sentida_mean:Fict1Fact2 + (1|ID))
+summary(m5)
+
+#Interaction model of sentida_mean and fictfact
+m6 <- lmerTest::lmer(data = logdf, response ~ Sentida_mean*Fict1Fact2 + (1|ID))
+summary(m6)
+
+anova(m1, m3, m4, m5, m6)
+
+MuMIn::r.squaredGLMM(m1)
+MuMIn::r.squaredGLMM(m3)
+MuMIn::r.squaredGLMM(m3_abs)
+MuMIn::r.squaredGLMM(m4)
+MuMIn::r.squaredGLMM(m5)
+
+responseggplot <- ggplot(logdf, aes(x = Sentida_mean, y = response, fill = valence, col = valence)) + geom_point() + geom_smooth(method="lm") + labs(x="response", y="Sentida_mean")
+responseggplot
+
+responsemeanggplot <- ggplot(testing1, aes(x = Sentida_mean, y = response_mean, fill = valence, col = valence)) + geom_point() + geom_smooth(method="lm") + labs(x="response", y="Sentida_mean")
+responsemeanggplot
+
+absresponsemeanggplot <- ggplot(testing1, aes(x = abs(Sentida_total), y = response_mean)) + geom_point() + geom_smooth(method="lm") + labs(x="response", y="Sentida_mean")
+absresponsemeanggplot
+
+logdf_fictfact$`mean(response)` <- rename(logdf_fictfact$`mean(response)`)
+
+lognew <- lognew1 %>% pivot_wider(names_from = Fict1Fact2, values_from = `mean(response)`)
+
+lognew1 <- within(logdf_fictfact, rm(`sd(response)`))
+
+subsetlog <- lognew1[1:30,]
+subsetlog1 <- lognew1[31:60,]
+
+subsetlog2 <- merge(subsetlog, subsetlog1, "story_num")
+
+str(lognew)
+
+ggplot(logdf_fictfact, aes(x = story_num, y = `mean(response)`, col = Fict1Fact2, col = Fict1Fact2, shape = Fict1Fact2)) + geom_point() + labs(x="response", y="Sentida_mean")
+
+ggplot(logdf_fictfact, aes(x = story_num, y = `mean(response)`, col = Fict1Fact2, shape = Fict1Fact2)) + geom_point() + labs(x="Story number", y="Mean response") + ggtitle("Mean response for each story")
+
+
+subsetlog2$newmean <- subsetlog2$`mean(response).y`
+
+testing1$valence <- c(1:30)
+for(i in 1:nrow(logdf)){
+  if(logdf$Sentida_mean[i] < 0){
+    logdf$valence[i] <- "Negative"}
+  else {(logdf$valence[i] <- "Positive")
+  }
+}
+
+str(testing1)
+as.factor(logdf$valence)
+```
+
+#Preprocessing of Heart rate data 1. step (Filtering raw data)
+```{r}
+#Heartrate data
+#Function that loads in heartrate data 
+nyfunct <- function(filename) {
+  filenamepath = paste("heartrate_data/", filename, sep = "")
+  file = read_csv(filenamepath, col_names = F)
+  labels = str_match(filenamepath, "heartrate_data/([0-9]+)_([a-zA-Z]+)_heartrate_resamp.csv")
+  Participant_num = labels[2]
+  #Makes sure that all files only load in the first 14000 
+  output = as.data.frame(t(file[,1:14000]))
+  names(output)[1] = labels[2]
+  output
+}
+
+hrdata1 = list.files(path = "heartrate_data/", pattern = "resamp.csv") %>% ## NB replace with your path to the files 
+    purrr::map_dfc(nyfunct)
+
+#Remove two participants due to measurement error
+hrdata1 <- within(hrdata1, rm(`012`, `040`))
+
+#remove zeros
+for(col in 1:ncol(hrdata1)){
+  colmean <-  mean(hrdata1[,col])
+  for(row in 1:nrow(hrdata1)){
+    value = hrdata1[row,col]
+    if(value == 0.00){
+      hrdata1[row,col] <- colmean
+    }
+  }
+}
+
+#Saving the dataframe for later use
+write_csv(hrdata1, "/Users/kaspermichelsen/Bachelor_final/rawhrdata.csv")
+hrdata1 <- read_csv("rawhrdata.csv")
+hrdataplot <- hrdata1
+hrdataplot$meanhr <- rowMeans(hrdataplot)
+#hrdata2 <- hrdata1
+hrdata1 <- as.matrix(hrdata1)
+#Filtering data with a lowpass filter
+library(gsignal)
+fs=10 # Sample frequency. 10 samples per second, i.e. 10 Hz
+Nyquist<-fs/2
+fpass <- c(0.04)
+wpass <- fpass / Nyquist
+but <- butter(5, wpass, "high")
+
+hrdata2 <-filtfilt(but, hrdata1)
+
+fpass1 <- c(0.15)
+wpass1 <- fpass1 / Nyquist
+but1 <- butter(5, wpass1, "low")
+
+hrdata3 <-filtfilt(but1, hrdata2)
+hrdata3 <- as.data.frame(hrdata3)
+
+test2 <- cbind(t, hrdata1[,1], hrdata2[,1])
+test2 <- as.data.frame(test2)
+m <- mean(hrdata1[,1])
+# 
+#before filter P1
+ggplot(test2, aes(x = t, y = V2)) + geom_path() 
+#After filter P1
+ggplot(test2, aes(x = t, y = V2)) + geom_path() + geom_path(aes(y = V3 + m), col = "red")
+
+# #filtfilt runs the filter both forward and backward, correcting for the delay (aka phase-shift)
+hrdata2 <- hrdata3
+
+str(hrdata1subset1)
+#renaming back to old names (only if filtered)
+library(data.table)
+hrdata2 <- setnames(hrdata2, old = c("V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10", "V11", "V12", "V13", "V14", "V15", "V16", "V17", "V18", "V19", "V20", "V21", "V22", "V23", "V24", "V25", "V26", "V27", "V28", "V29", "V30", "V31", "V32", "V33", "V34", "V35"), new = c("001","002","003","004","005","006","007","008","009","013","014","015","016","017","018","019","020","021","022","023","024","025","026","027","028","029","030","031","033","034","035","036","037","038","039"), skip_absent = T)
+
+#Make a 'drift column'
+hrdata2$drift <- c(7000:-6999)
+```
+
+#Dividing into stories and adding sentida (per sentence and story means)
+```{r}
+#defining when a story is told during the scan
+story1 <- hrdata2[26:373,]
+story2 <- hrdata2[500:1045,]
+story3 <- hrdata2[1171:1440,]
+story4 <- hrdata2[1556:1899,]
+story5 <- hrdata2[2025:2297,]
+story6 <- hrdata2[2423:2653,]
+story7 <- hrdata2[2779:3135,]
+story8 <- hrdata2[3261:3627,]
+story9 <- hrdata2[3753:4010,]
+story10 <- hrdata2[4136:4294,]
+story11 <- hrdata2[4420:4581,]
+story12 <- hrdata2[4707:5004,]
+story13 <- hrdata2[5131:5425,]
+story14 <- hrdata2[5552:6035,]
+story15 <- hrdata2[6161:6576,]
+story16 <- hrdata2[6703:7098,]
+story17 <- hrdata2[7225:7556,]
+story18 <- hrdata2[7682:7940,]
+story19 <- hrdata2[8066:8601,]
+story20 <- hrdata2[8728:8969,]
+story21 <- hrdata2[9095:9316,]
+story22 <- hrdata2[9442:9902,]
+story23 <- hrdata2[10028:10409,]
+story24 <- hrdata2[10535:10803,]
+story25 <- hrdata2[10930:11364,]
+story26 <- hrdata2[11490:11735,]
+story27 <- hrdata2[11862:12296,]
+story28 <- hrdata2[12422:12694,]
+story29 <- hrdata2[12820:13034,]
+story30 <- hrdata2[13160:13462,]
+
+#summing stories
+therealstory <- rbind(story1, story2, story3, story4, story5, story6, story7, story8, story9, story10, story11, story12, story13, story14, story15, story16, story17, story18, story19, story20, story21, story22, story23, story24, story25, story26, story27, story28, story29, story30) 
+
+#Make a contrast column where it puts 1 everytime a story is told and 0 when there is not
+for(i in 1:nrow(hrdata2)) {
+  if (rownames(hrdata2)[i] %in% rownames(therealstory)) {
+    hrdata2$con[i] = 1
+  } else{
+    hrdata2$con[i] = 0
+  }
+}
+
+#Make a contrast column where it puts the sentida value as contrast every time a story is told and 0 when there is not
+for(i in 1:nrow(hrdata2)) {
+  hrdata2$sentence_number <- 0
+  hrdata2$sentence_sen_mean <- 0
+  hrdata2$sentence_sen_total <- 0
+  
+  if (rownames(hrdata2)[i] %in% rownames(story1)) {
+    hrdata2$sen[i] = hr$Sentida_mean[1]
+    hrdata2$storynum[i] = 1
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story2)) {
+    hrdata2$sen[i] = hr$Sentida_mean[2]
+    hrdata2$storynum[i] = 2
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story3)) {
+    hrdata2$sen[i] = hr$Sentida_mean[3]
+    hrdata2$storynum[i] = 3
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story4)) {
+    hrdata2$sen[i] = hr$Sentida_mean[4]
+    hrdata2$storynum[i] = 4
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story5)) {
+    hrdata2$sen[i] = hr$Sentida_mean[5]
+    hrdata2$storynum[i] = 5
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story6)) {
+    hrdata2$sen[i] = hr$Sentida_mean[6]
+    hrdata2$storynum[i] = 6
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story7)) {
+    hrdata2$sen[i] = hr$Sentida_mean[7]
+    hrdata2$storynum[i] = 7
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story8)) {
+    hrdata2$sen[i] = hr$Sentida_mean[8]
+    hrdata2$storynum[i] = 8
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story9)) {
+    hrdata2$sen[i] = hr$Sentida_mean[9]
+    hrdata2$storynum[i] = 9
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story10)) {
+    hrdata2$sen[i] = hr$Sentida_mean[10]
+    hrdata2$storynum[i] = 10
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story11)) {
+    hrdata2$sen[i] = hr$Sentida_mean[11]
+    hrdata2$storynum[i] = 11
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story12)) {
+    hrdata2$sen[i] = hr$Sentida_mean[12]
+    hrdata2$storynum[i] = 12
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story13)) {
+    hrdata2$sen[i] = hr$Sentida_mean[13]
+    hrdata2$storynum[i] = 13
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story14)) {
+    hrdata2$sen[i] = hr$Sentida_mean[14]
+    hrdata2$storynum[i] = 14
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story15)) {
+    hrdata2$sen[i] = hr$Sentida_mean[15]
+    hrdata2$storynum[i] = 15
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story16)) {
+    hrdata2$sen[i] = hr$Sentida_mean[16]
+    hrdata2$storynum[i] = 16
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story17)) {
+    hrdata2$sen[i] = hr$Sentida_mean[17]
+    hrdata2$storynum[i] = 17
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story18)) {
+    hrdata2$sen[i] = hr$Sentida_mean[18]
+    hrdata2$storynum[i] = 18
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story19)) {
+    hrdata2$sen[i] = hr$Sentida_mean[19]
+    hrdata2$storynum[i] = 19
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story20)) {
+    hrdata2$sen[i] = hr$Sentida_mean[20]
+    hrdata2$storynum[i] = 20
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story21)) {
+    hrdata2$sen[i] = hr$Sentida_mean[21]
+    hrdata2$storynum[i] = 21
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story22)) {
+    hrdata2$sen[i] = hr$Sentida_mean[22]
+    hrdata2$storynum[i] = 22
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story23)) {
+    hrdata2$sen[i] = hr$Sentida_mean[23]
+    hrdata2$storynum[i] = 23
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story24)) {
+    hrdata2$sen[i] = hr$Sentida_mean[24]
+    hrdata2$storynum[i] = 24
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story25)) {
+    hrdata2$sen[i] = hr$Sentida_mean[25]
+    hrdata2$storynum[i] = 25
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story26)) {
+    hrdata2$sen[i] = hr$Sentida_mean[26]
+    hrdata2$storynum[i] = 26
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story27)) {
+    hrdata2$sen[i] = hr$Sentida_mean[27]
+    hrdata2$storynum[i] = 27
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story28)) {
+    hrdata2$sen[i] = hr$Sentida_mean[28]
+    hrdata2$storynum[i] = 28
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story29)) {
+    hrdata2$sen[i] = hr$Sentida_mean[29]
+    hrdata2$storynum[i] = 29
+  }
+  else if (rownames(hrdata2)[i] %in% rownames(story30)) {
+    hrdata2$sen[i] = hr$Sentida_mean[30]
+    hrdata2$storynum[i] = 30
+  }
+  else {
+    hrdata2$sen[i] = 0
+    hrdata2$storynum[i] = 0
+  }
+}
+
+#Creating story intervals as a list
+story_intervals = list(c(26, 373), c(500, 1045), c(1171,1440), c(1556,1899), c(2025, 2297), c(2423, 2653), c(2779, 3135), c(3261, 3627), c(3753, 4010), c(4136, 4294), c(4420, 4581), c(4707, 5004), c(5131, 5425), c(5552, 6034), c(6161, 6576), c(6703, 7098), c(7225, 7556), c(7682, 7940), c(8066, 8601), c(8728, 8969), c(9095, 9316), c(9442, 9902), c(10028, 10409), c(10535, 10803), c(10930, 11364), c(11490, 11735), c(11862, 12296), c(12422, 12694), c(12820, 13034), c(13160, 13462))
+
+#Calculating sentida_scores per sentence
+#Make a function that puts the text into sentida-dictionary
+analyse_textfile_per_sentence <- function(filename) {
+  filenamepath = paste("story_texts/", filename, sep = "")
+  file = read_file(filenamepath)
+  file <- str_trim(file)
+  
+  #Making sentida scores for each sentence of the stories
+  sentida_sentence_mean <- c()
+  sentida_sentence_total <- c()
+  sentence_ratio <- c()
+  filesplit <- str_split(file, "\\.", simplify = T)
+
+  for (i in 1:length(filesplit)){
+    sentence <- filesplit[i]
+    # Add +1 since the dot is removed, but still counts into the total length
+   
+    does_containt_char = grepl("!", sentence, fixed=TRUE)
+    sentence_length_with_spaces_and_dot = nchar(sentence) + (if (does_containt_char) 0 else 1)
+    sentence <- str_trim(sentence)
+    if (sentence == ""){
+      next
+    }
+    
+    ratio <- sentence_length_with_spaces_and_dot/nchar(file)
+    
+    sentence_mean <- sentida(sentence, output = "mean")
+    sentence_total <- sentida(sentence, output = "total")
+    sentida_sentence_mean <-  c(sentida_sentence_mean, sentence_mean)
+    sentida_sentence_total <- c(sentida_sentence_total, sentence_total)
+    sentence_ratio <- c(sentence_ratio, ratio)
+  }
+
+  sentence_number <- 1:length(sentida_sentence_mean)
+  Sentida_mean = sentida(file, output = "mean")
+  Sentida_total = sentida(file, output = "total")
+  labels = str_match(filenamepath, "story_texts/Fiction_story([0-9]+).txt")
+  
+  story_num = as.numeric(labels[2])
+  interval <- story_intervals[[story_num]]
+  intervallength <- interval[2]-interval[1]
+  ranges <- round(intervallength*sentence_ratio)
+  cumranges <- cumsum(ranges)+interval[1]
+  cumranges <- c(interval[1], cumranges)
+  int_start <- cumranges[-length(cumranges)]
+  int_end <- cumranges[-1]
+  
+  output <- data.frame(story_num, Sentida_mean, Sentida_total, sentida_sentence_mean, sentida_sentence_total, sentence_number, sentence_ratio, int_start, int_end)
+}
+
+
+#Puts all the sentida scores into a dataframe
+sentence_analysis = list.files(path = "story_texts/", pattern = "txt") %>% ## NB replace with your path to the files 
+    purrr::map_df(analyse_textfile_per_sentence)
+
+#puts sentida-scores by sentence into heart rate data
+for (row in 1:nrow(sentence_analysis)){
+  start <- sentence_analysis$int_start[row]
+  end <- sentence_analysis$int_end[row]
+  for (j in start:end){
+    hrdata2$sentence_number[j] <- sentence_analysis$sentence_number[row]
+    hrdata2$sentence_sen_mean[j] <- sentence_analysis$sentida_sentence_mean[row]
+    hrdata2$sentence_sen_total[j] <- sentence_analysis$sentida_sentence_total[row]
+    
+  }
+}
+
+#Adding time variable
+hrdata2$time <- c(1:14000)
+```
+
+#Scale the raw data and remove outliers
+```{r}
+#separating variables that should not be scaled
+othervariables <- hrdata2 %>% select("con", "sentence_number", "storynum", "time")
+
+beforescaledf <- hrdata2
+#Scale everything
+scaledhrdata <- scale(hrdata2)
+scaledhrdata <- as.data.frame(scaledhrdata)
+newdf1 <- scale(hrdataplot)
+
+#Selecting columns to outlier-removal (keeping)
+scaledhrdataoutlierrm <- scaledhrdata %>% select(`001`,`002`,`003`,`004`,`005`,`006`,`007`,`008`,`009`,`013`,`014`,`015`,`016`,`017`,`018`,`019`,`020`,`021`,`022`,`023`,`024`,`025`,`026`,`027`,`028`,`029`,`030`,`031`,`033`,`034`,`035`,`036`,`037`,`038`,`039`)
+
+
+#remove outliers (z scores above and below 3) after scaling (does not work properly just yet)
+# for(col in 1:ncol(scaledhrdataoutlierrm)) { # for-loop over columns
+#   for(row in 2:(nrow(scaledhrdataoutlierrm)-1)){  #for-loop over rows
+#     value = scaledhrdataoutlierrm[row,col]
+#     if(value > 3 | value < -3){
+#     scaledhrdataoutlierrm[row,col] <- mean(c(scaledhrdataoutlierrm[row-1,col], scaledhrdataoutlierrm[row+1,col]))
+#     }
+#   }
+# }
+
+#New outlier function
+for(col in 1:ncol(scaledhrdataoutlierrm)) { # for-loop over columns
+  for(row in 2:(nrow(scaledhrdataoutlierrm)-1)){  #for-loop over rows
+    value = scaledhrdataoutlierrm[row,col]
+    if(value > 3){
+    scaledhrdataoutlierrm[row,col] <- 3
+    }
+    if(value < -3){
+      print(value)
+    scaledhrdataoutlierrm[row,col] <- -3  
+    }
+  }
+}
+
+# for(col in 1:ncol(newdf1)) { # for-loop over columns
+#   for(row in 2:(nrow(newdf1)-1)){  #for-loop over rows
+#     value = newdf1[row,col]
+#     if(value > 3){
+#     newdf1[row,col] <- 3
+#     }
+#     if(value < -3){
+#       print(value)
+#     newdf1[row,col] <- -3  
+#     }
+#   }
+# }
+# removeOuts <- function(ts, threshold){
+#   higher_threshold_condition <- ts > (mean(ts, na.rm = T) + (threshold*sd(ts, na.rm = T)))
+#   lower_threshold_condition <- ts < (mean(ts, na.rm = T) - (threshold*sd(ts, na.rm = T)))
+#   ts[higher_threshold_condition] <- mean(ts, na.rm = T) + (threshold *sd(ts, na.rm = T))
+#   ts[lower_threshold_condition] <- mean(ts, na.rm = T) - (threshold *sd(ts, na.rm = T))
+#   return(ts)
+# }
+# 
+# threshold = 3
+# 
+# scaledhr1noout <- no_outliersdf <- scaledhrdata %>% 
+#   mutate(`023` = removeOuts(`023`, threshold))
+# 
+# ggplot(data = scaledhrdata1) + geom_path(aes(time, `023`, color = "P1")) + labs(x = "time", y = "HR") + theme_classic() + ggtitle("Heart rate raw data")
+# ggplot(data = scaledhr1noout) + geom_path(aes(time, `023`, color = "P1")) + labs(x = "time", y = "HR") + theme_classic() + ggtitle("Heart rate raw data")
+
+plot(scaledhrdata1$`015`)
+plot(scaledhrdataoutlierrm$`015`)
+
+#Creating rowmeans of scaled heartrates
+scaledhrdataoutlierrm$meanHR <- rowMeans(scaledhrdataoutlierrm)
+
+#seperating variables that needs to be merged with the outlier-removed hrdata
+scaledothervariables <-  scaledhrdata %>% select("drift", "sentence_sen_mean", "sentence_sen_total", "sen")
+
+#Binding the two dataframes together
+scaledhrdata1 <- cbind(scaledhrdataoutlierrm, scaledothervariables, othervariables)
+
+plot(scaledhrdata$`0`)
+```
+
+#Dividing hrdata into two groups depending on the story sequence (fictfact or factfict)
+```{r}
+#Dividing the dataset into participants having the same conditions
+factsubset <- scaledhrdata1 %>% select(`001`,`003`, `005`, `007`, `009`, `013`, `015`, `017`, `019`,`021`,`023`,`025`,`027`,`029`,`031`, `034`, `036`, `038`, drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
+
+fictsubset <- scaledhrdata1 %>% select(`002`,`004`, `006`, `008`, `014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`, drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
+
+#Creating a meanhr for each condition in the main dataframe
+factrowmean <- scaledhrdata1 %>% 
+  select(`001`,`003`, `005`, `007`, `009`, `013`, `015`, `017`, `019`,`021`,`023`,`025`,`027`,`029`,`031`, `034`, `036`, `038`)
+
+scaledhrdata1$meanfactHR <- rowMeans(factrowmean)
+factsubset$meanfactHR <- rowMeans(factrowmean)
+
+fictrowmean <- scaledhrdata1 %>% 
+  select(`002`,`004`, `006`, `008`, `014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`)
+
+scaledhrdata1$meanfictHR <- rowMeans(fictrowmean)
+fictsubset$meanfictHR <- rowMeans(fictrowmean)
+
+#Creating new contrast in the two dataframes (1 for fact, -1 for fict, and 0 when no story)
+for(i in 1:nrow(factsubset)){
+  if (factsubset$storynum[i] == 0){
+    factsubset$fictfact[i] = 0
+  }
+  else if (factsubset$storynum[i] %% 2 == 1) {
+    factsubset$fictfact[i] = 1
+  }
+  else {
+    factsubset$fictfact[i] = -1
+  }
+} 
+
+for(i in 1:nrow(fictsubset)){
+  if (fictsubset$storynum[i] == 0){
+    fictsubset$fictfact[i] = 0
+  }
+  else if (fictsubset$storynum[i] %% 2 == 0) {
+    fictsubset$fictfact[i] = 1
+  }
+  else {
+    fictsubset$fictfact[i] = -1
+  }
+}
+```
+
+#Pivoting dataframes
+```{r}
+#Putting all heartrates into one column (make it easier to run statistical analysis)
+#Maindf (scaledhrdata1)
+pivotdf <- scaledhrdata1 %>% pivot_longer(`001`:`002`:`003`:`004`:`005`:`006`:`007`:`008`:`009`:`013`:`014`:`015`:`016`:`017`:`018`:`019`:`020`:`021`:`022`:`023`:`024`:`025`:`026`:`027`:`028`:`029`:`030`:`031`:`033`:`034`:`035`:`036`:`037`:`038`:`039`, "Participant_number")
+
+#Pivoting two different conditions
+pivotfact <- factsubset %>% 
+  pivot_longer(`001`:`003`:`005`:`007`: `009`: `013`: `015`: `017`: `019`:`021`:`023`:`025`:`027`:`029`:`031`: `034`: `036`: `038`, "Participant_number")
+
+pivotfact$group <- 1
+
+pivotfict <- fictsubset %>% 
+  pivot_longer(`002`:`004`: `006`: `008`: `014`: `016`: `018`: `020`:`022`:`024`:`026`:`028`:`030`:`033`: `035`: `037`: `039`, "Participant_number")
+
+pivotfict$group <- 2
+
+#Putting it into a single df
+
+pivotfictfactdf <- rbind(pivotfact, pivotfict)
+pivotfictfactdf$group <- as.factor(pivotfictfactdf$group)
+pivotfictfactdf$fictfact <- as.factor(pivotfictfactdf$fictfact)
+
+pivotdf$con <- as.factor(pivotdf$con)
+```
+
+#Statistical models on heart rate data
+```{r}
+#Models of sentiment analysis
+hrmodel1 <- lmerTest::lmer(value ~ abs(sentence_sen_mean) + (1|Participant_number), data = pivotdf)
+summary(hrmodel1)
+str(pivotdf)
+
+reshrm1 <- resid(hrmodel1)
+plot(hrmodel1)
+qqnorm(reshrm1)
+pivotdf$abs_sent <- abs(pivotdf$sentence_sen_mean)
+ggplot(pivotdf, aes(sample = abs_sent)) + stat_qq()+ stat_qq_line(colour = "red")
+
+hrmodelcon <- lmerTest::lmer(value ~ con + (1|Participant_number), data = pivotdf)
+summary(hrmodelcon)
+MuMIn::r.squaredGLMM(hrmodelcon)
+
+hrmodel2 <- lmerTest::lmer(value ~ sentence_sen_mean + (1|Participant_number), data = pivotdf)
+summary(hrmodel2)
+
+hrmodel3 <- lmerTest::lmer(value ~ sentence_sen_mean + (1|Participant_number), data = pivotdf)
+summary(hrmodel1)
+summary(hrmodel3)
+
+reshrm3 <- resid(hrmodel3)
+plot(hrmodel3)
+qqnorm(reshrm3)
+ggplot(pivotdf, aes(sample = sentence_sen_mean)) + stat_qq()+ stat_qq_line(colour = "red")
+
+ggplot(logdf, aes(sample = Sentida_mean)) + stat_qq()+ stat_qq_line(colour = "red")
+
+hrmodel3pushed <- lmerTest::lmer(value ~ sentence_sen_mean + (1|Participant_number), data = pivotfictfactdfpushed)
+
+MuMIn::r.squaredGLMM(hrmodelcon)
+MuMIn::r.squaredGLMM(hrmodel1)
+MuMIn::r.squaredGLMM(hrmodel2)
+MuMIn::r.squaredGLMM(hrmodel3)
+MuMIn::r.squaredGLMM(hrmodel3pushed)
+
+summary(hrmodel3pushed)
+
+#Models of fiction and facts
+as.factor(fictsubset$fictfact)
+
+hrmodel4 <- lmerTest::lmer(value ~ fictfact + drift + (1|Participant_number), data = pivotfict)
+summary(hrmodel4)
+
+pivotfict$fictfact <- as.factor(pivotfict$fictfact)
+pivotfact$fictfact <- as.factor(pivotfact$fictfact)
+
+hrmodel4_fact <- lmerTest::lmer(value ~ fictfact + (1|Participant_number), data = pivotfact)
+
+hrmodel5_fict <- lmerTest::lmer(value ~ 1 + fictfact + (1|Participant_number), data = pivotfict)
+summary(hrmodel4_fact)
+summary(hrmodel5_fict)
+
+hrmodel5 <- lmerTest::lmer(value ~ fictfact + drift + (1|Participant_number), data = pivotfictfactdf)
+summary(hrmodel5)
+
+?select
+
+str(fictsubset)
+fictsubset$fictfact <- as.factor(fictsubset$fictfact)
+anovamodel1 <- aov(formula = meanfictHR ~ fictfact, data = fictsubset)
+summary(anovamodel1)
+TukeyHSD(anovamodel1)
+plot(anovamodel1)
+
+library(multcomp)
+summary(glht(aov(meanfictHR ~ fictfact, fictsubset), linfct = mcp(fictfact = "Tukey")))
+
+summary(glht(aov(meanfactHR ~ fictfact, factsubset), linfct = mcp(fictfact = "Tukey")))
+
+factsubset$fictfact <- as.factor(factsubset$fictfact)
+anovamodel2 <- aov(formula = meanfactHR ~ fictfact, data = factsubset)
+summary(anovamodel2)
+TukeyHSD(anovamodel2)
+
+
+
+library(rstatix)
+pivotfictfactdf$Participant_number <- as.factor(pivotfictfactdf$Participant_number)
+str(pivotfictfactdf)
+
+res.aov <- anova_test(
+  data = pivotfict, dv = value, wid = Participant_number,
+  within = c(Participant_number)
+  )
+get_anova_table(res.aov)
+
+testaov <- aov(formula = value ~ fictfact + Error(Participant_number/group), data = pivotfictfactdf)
+summary(testaov)
+TukeyHSD(testaov)
+
+pivotfictfactdf$value[318519]
+
+pivotfictfactdf$con <- as.factor(pivotfictfactdf$con)
+
+hrmodel6_new <- lmerTest::lmer(value ~ fictfact*group + (1|Participant_number), data = pivotfictfactdf)
+summary(hrmodel6_new)
+MuMIn::r.squaredGLMM(hrmodel6_new)
+resm6 <- resid(hrmodel6_new)
+plot(hrmodel6_new)
+qqnorm(resm6)
+assumptHRV
+value_fict_qq
+
+
+assumptHRV <- round(pastecs::stat.desc(pivotfictfactdf$value, basic = FALSE, norm = FALSE), digits = 2)
+#HR plots
+value_fict_qq <- ggplot(pivotfictfactdf, aes(sample = value)) + stat_qq()+ stat_qq_line(colour = "red")
+
+
+
+pivotfictfactdf$fictfact <- as.numeric(pivotfictfactdf$fictfact)
+hrmodel7 <- lmerTest::lmer(value ~ fictfact + sentence_sen_mean + drift + (1|Participant_number) + (1|group), data = pivotfictfactdf)
+
+summary(hrmodel7)
+
+hrmodel6_new1 <- lmerTest::lmer(value ~ fictfact*group + (1|Participant_number), data = pivotfictfactdfpushed)
+
+MuMIn::r.squaredGLMM(hrmodel4)
+MuMIn::r.squaredGLMM(hrmodel5)
+MuMIn::r.squaredGLMM(hrmodel6)
+
+MuMIn::r.squaredGLMM(hrmodel6_new1)
+
+ting <- as.formula(hrmodelcon)
+plot(ting, 2)
+
+#Not the best results - it keeps complaining about singular fit (maybe to much data?)
+```
+
+
+#Pushing the df corresponding to the best effect of sentida_sentence_mean (or con?)
+```{r}
+#
+meanhrdf <- scaledhrdata1$meanHR
+meanhrdf <- as.data.frame(meanhrdf)
+
+sentence_sen_df <- scaledhrdata1$sentence_sen_mean
+sentence_sen_df <- as.data.frame(sentence_sen_df)
+
+abs_sentence <- abs(sentence_sen_df$sentence_sen_df)
+abs_sentence <- as.data.frame(abs_sentence)
+
+
+scaledhrdata1$con <- as.factor(scaledhrdata1$con)
+
+con_df <- scaledhrdata1$con
+con_df <- as.data.frame(con_df)
+
+dfcoef <- c()
+library(gtools)
+
+#For-loop for getting coefficients on statistical model: lm(meanhrdf ~ sentence_sen_df, combinedf)
+for( i in 1:nrow(sentence_sen_df)){
+  if( i == 200){
+    break
+  }
+  combinedf <- cbind(sentence_sen_df,meanhrdf)
+  m500 <- lm(meanhrdf ~ sentence_sen_df, combinedf)
+  coef <- m500$coefficients["sentence_sen_df"]
+  dfcoef <- c(dfcoef, coef)
+  meanhrdf <- meanhrdf %>% mutate_all(.funs = funs(lag))
+  meanhrdf <- na.replace(meanhrdf, 0)
+  
+}
+
+dfcoef <- as.data.frame(dfcoef)
+
+#The beta coefficient is highest at 16 datapoints
+plot(dfcoef$dfcoef[1:200], main = "Coefficients")
+
+#According to this investigation - 10 second delay gives a good effect (but it might be to much pushing)
+
+#Push the data
+pushedhrdata <- scaledhrdata1 %>% select(`001`,`003`, `005`, `007`, `009`, `013`, `015`, `017`,`019`,`021`,`023`,`025`,`027`,`029`,`031`, `034`, `036`, `038`,`002`,`004`, `006`, `008`,`014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`)
+
+for( i in 1:nrow(pushedhrdata)){
+  pushedhrdata <- pushedhrdata %>% mutate_all(.funs = funs(lag))
+  pushedhrdata <- na.replace(pushedhrdata, 0)
+  if( i == 30){
+    break
+  }
+}
+
+variablesnew <- scaledhrdata1 %>% select(drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
+pushedhrdata$hrmean <- rowMeans(pushedhrdata)
+pushedhrdata1 <- cbind(pushedhrdata, variablesnew)
+
+```
+
+#Exploratory (dividing dataset into 10 stories each)
+```{r}
+#divide it into three parts
+dfdivided1 <- pushedhrdata1[1:4294,]
+dfdivided2 <- pushedhrdata1[4295:8969,]
+dfdivided3 <- pushedhrdata1[8970:14000,]
+
+pivotdiv1 <- dfdivided1 %>% pivot_longer(`001`:`002`:`003`:`004`:`005`:`006`:`007`:`008`:`009`:`013`:`014`:`015`:`016`:`017`:`018`:`019`:`020`:`021`:`022`:`023`:`024`:`025`:`026`:`027`:`028`:`029`:`030`:`031`:`033`:`034`:`035`:`036`:`037`:`038`:`039`, "Participant_number")
+
+pivotdiv2 <- dfdivided2 %>% pivot_longer(`001`:`002`:`003`:`004`:`005`:`006`:`007`:`008`:`009`:`013`:`014`:`015`:`016`:`017`:`018`:`019`:`020`:`021`:`022`:`023`:`024`:`025`:`026`:`027`:`028`:`029`:`030`:`031`:`033`:`034`:`035`:`036`:`037`:`038`:`039`, "Participant_number")
+
+pivotdiv3 <- dfdivided3 %>% pivot_longer(`001`:`002`:`003`:`004`:`005`:`006`:`007`:`008`:`009`:`013`:`014`:`015`:`016`:`017`:`018`:`019`:`020`:`021`:`022`:`023`:`024`:`025`:`026`:`027`:`028`:`029`:`030`:`031`:`033`:`034`:`035`:`036`:`037`:`038`:`039`, "Participant_number")
+
+mdiv1 <- lmerTest::lmer(value ~ sentence_sen_mean + drift + (1|Participant_number), data = pivotdiv1)
+mdiv2 <- lmerTest::lmer(value ~ sentence_sen_mean + drift + (1|Participant_number), data = pivotdiv2)
+mdiv3 <- lmerTest::lmer(value ~ sentence_sen_mean + drift + (1|Participant_number), data = pivotdiv3)
+
+summary(mdiv1)
+summary(mdiv2)
+summary(mdiv3)
+
+plot(mdiv1)
+
+MuMIn::r.squaredGLMM(mdiv1)
+MuMIn::r.squaredGLMM(mdiv2)
+MuMIn::r.squaredGLMM(mdiv3)
+
+#Seemingly better results and no 'singular fit' message
+#fict and fact exploration
+factsubsetpushed <- pushedhrdata1 %>% select(`001`,`003`, `005`, `007`, `009`, `013`, `015`, `017`, `019`,`021`,`023`,`025`,`027`,`029`,`031`, `034`, `036`, `038`, drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
+
+fictsubsetpushed <- pushedhrdata1 %>% select(`002`,`004`, `006`, `008`, `014`, `016`, `018`, `020`,`022`,`024`,`026`,`028`,`030`,`033`, `035`, `037`, `039`, drift, sentence_sen_mean, sentence_sen_total, sen, con, sentence_number, storynum, time)
+
+#Creating new contrast in the two dataframes (1 for fact, -1 for fict, and 0 when no story)
+for(i in 1:nrow(factsubsetpushed)){
+  if (factsubsetpushed$storynum[i] == 0){
+    factsubsetpushed$fictfact[i] = 0
+  }
+  else if (factsubsetpushed$storynum[i] %% 2 == 1) {
+    factsubsetpushed$fictfact[i] = 1
+  }
+  else {
+    factsubsetpushed$fictfact[i] = -1
+  }
+} 
+
+for(i in 1:nrow(fictsubsetpushed)){
+  if (fictsubsetpushed$storynum[i] == 0){
+    fictsubsetpushed$fictfact[i] = 0
+  }
+  else if (fictsubsetpushed$storynum[i] %% 2 == 0) {
+    fictsubsetpushed$fictfact[i] = 1
+  }
+  else {
+    fictsubsetpushed$fictfact[i] = -1
+  }
+}
+
+pivotfactpushed <- factsubsetpushed %>% 
+  pivot_longer(`001`:`003`:`005`:`007`: `009`: `013`: `015`: `017`: `019`:`021`:`023`:`025`:`027`:`029`:`031`: `034`: `036`: `038`, "Participant_number")
+
+pivotfact$group <- 1
+
+pivotfictpushed <- fictsubsetpushed %>% 
+  pivot_longer(`002`:`004`: `006`: `008`: `014`: `016`: `018`: `020`:`022`:`024`:`026`:`028`:`030`:`033`: `035`: `037`: `039`, "Participant_number")
+
+pivotfict$group <- 2
+
+pivotfictpushed$fictfact <- as.factor(pivotfictpushed$fictfact)
+pivotfactpushed$fictfact <- as.factor(pivotfactpushed$fictfact)
+hrmodel5_fict_pushed <- lmerTest::lmer(value ~ 1 + fictfact + drift + (1|Participant_number), data = pivotfictpushed)
+hrmodel4_fact_pushed <- lmerTest::lmer(value ~ 1 + fictfact + drift + (1|Participant_number), data = pivotfactpushed)
+str(pivotfict)
+
+pivotfactpushed$group <- 1
+pivotfictpushed$group <- 2
+
+pivotfictfactdfpushed <- rbind(pivotfactpushed, pivotfictpushed)
+
+pivotfictfactdfpushed$fictfact <- as.factor(pivotfictfactdfpushed$fictfact)
+
+pivotfictfactdfpushed$group <- as.factor(pivotfictfactdfpushed$group)
+pivotfictfactdfpushed$fictfact <- as.numeric(pivotfictfactdfpushed$fictfact)
+str(pivotfictfactdfpushed)
+summary(hrmodel4_fact_pushed)
+summary(hrmodel4_fact)
+summary(hrmodel5_fict)
+summary(hrmodel5_fict_pushed)
+
+hrmodel6 <- lmerTest::lmer(value ~ fictfact + (1|Participant_number), data = pivotfictfactdf)
+summary(hrmodel6)
+
+hrmodel6pushed <- lmerTest::lmer(value ~ fictfact*group + (1|Participant_number), data = pivotfictfactdfpushed)
+summary(hrmodel6pushed)
+
+MuMIn::r.squaredGLMM(hrmodel6)
+MuMIn::r.squaredGLMM(hrmodel6pushed)
+MuMIn::r.squaredGLMM(hrmodel6pushed)
+
+pivotfictfactdfpushed$con <- as.factor(pivotfictfactdfpushed$con)
+
+hrmodelcon <- lmerTest::lmer(value ~ con + (1|Participant_number), data = pivotfictfactdfpushed)
+summary(hrmodelsen)
+
+hrmodelsen <- lmerTest::lmer(value ~ abs(sentence_sen_mean) + (1|Participant_number), data = pivotfictfactdfpushed)
+
+hrmodelsen1 <- lmerTest::lmer(value ~ sentence_sen_mean + (1|Participant_number), data = pivotfictfactdfpushed)
+
+summary(hrmodelsen1)
+
+MuMIn::r.squaredGLMM(hrmodelsen)
+
+as.data.frame(hrdata1)
+hrdata1$meanhr <- rowMeans(hrdata1)
+
+summary(glht(aov(meanfictHR ~ fictfact, fictsubset), linfct = mcp(fictfact = "Tukey")))
+```
+
+#Filter exploration - only work if the filter in the beginning of the script is not applied
+#Spectral density plots
+```{r}
+library(dygraphs)
+library(xts)
+del=1/10
+newdf1 <- as.data.frame(newdf1)
+#Use a function to find the different spectral elements
+fpass <- c(0.02, 0.15)
+wpass <- fpass / Nyquist
+but <- butter(5, wpass, "pass")
+
+newdf1 <- as.matrix(newdf1)
+ahh <-filter(but,newdf1)
+ahh <- as.data.frame(ahh)
+hrdf_spec_hr<-spectrum(scaledhrdata1$meanHR,plot=FALSE)
+#convert into understandable axes
+spx <- hrdf_spec_hr$freq/del
+spy <- 2*hrdf_spec_hr$spec
+plot(spy[1:1000]~spx[1:1000],xlab="frequency (Hz)",ylab="spectral density",type="l",col='darkgreen', main = "Spectral elements of mean HRV after filtering")
+?plot
+
+hrdf_spec_sen<-spectrum(scaledhrdata1$sentence_sen_mean,plot=FALSE)
+#convert into understandable axes
+spx1 <- hrdf_spec_sen$freq/del
+spy1 <- 2*hrdf_spec_sen$spec
+plot(spy1[1:1000]~spx1[1:1000],xlab="frequency (Hz)",ylab="spectral density",type="l",col='darkgreen')
+
+hrdf_spec_fict<-spectrum(fictsubset$fictfact,plot=FALSE)
+#convert into understandable axes
+spx2 <- hrdf_spec_fict$freq/del
+spy2 <- 2*hrdf_spec_fict$spec
+plot(spy2[1:1000]~spx2[1:1000],xlab="frequency (Hz)",ylab="spectral density",type="l",col='darkgreen')
+```
+
+#Plots of hr data
+```{r}
+subset_meanHR_con <- scaledhrdata1 %>% select(time,`007`, con)
+subset_meanHR_con$normal<-fftfilt(rep(1, 10)/10, subset_meanHR_con$`007`)
+subset_meanHR_con$meanHR=NULL
+
+pp <- dygraph(subset_meanHR_con)
+pp
+
+factsubset$facthrmean <- scaledhrdata1$meanfactHR
+
+
+#fictmodel
+subset_meanHR_fact <- pushedhrdata1 %>% select(time, facthrmean, fictfact)
+subset_meanHR_fact$normal<-fftfilt(rep(1, 10)/10, subset_meanHR_fact$facthrmean)
+subset_meanHR_fact$meanHR=NULL
+
+pp1 <- dygraph(subset_meanHR_fact)
+pp1
+
+scaledhrdata1$abs_sent <- abs(scaledhrdata1$sentence_sen_mean)
+#plot over meanHR and sentence_sen_mean
+subset_meanHR_sentencemean <- scaledhrdata1 %>% select(time, meanHR, abs_sent)
+subset_meanHR_sentencemean$normal<-fftfilt(rep(1, 10)/10, subset_meanHR_sentencemean$meanHR)
+subset_meanHR_sentencemean$meanHR=NULL
+
+p <- g1 <- subset_meanHR_sentencemean %>% dygraph() %>% dyOptions(stackedGraph = TRUE) %>%
+  dyRangeSelector(height = 20)
+p
+
+subset_meanHR_sentencemean <- scaledhrdata1 %>% select(time, meanHR, sentence_sen_mean)
+subset_meanHR_sentencemean$normal<-fftfilt(rep(1, 10)/10, subset_meanHR_sentencemean$meanHR)
+subset_meanHR_sentencemean$meanHR=NULL
+
+p1 <- dygraph(subset_meanHR_sentencemean)
+p1
+
+pushedhrdata1$abs_sent <- scaledhrdata1$abs_sent
+#Plot over pushedmeanHR and sentence_sen_mean
+subset_pushedmeanHR_sentencemean <- pushedhrdata1 %>% select(time, hrmean, sentence_sen_mean)
+subset_pushedmeanHR_sentencemean$normal<-fftfilt(rep(1, 10)/10, subset_pushedmeanHR_sentencemean$hrmean)
+subset_pushedmeanHR_sentencemean$hrmean=NULL
+
+q <- dygraph(subset_pushedmeanHR_sentencemean)
+q
+
+str(pushedhrdata1)
+#Abs
+subset_pushedmeanHR_sentencemean <- pushedhrdata1 %>% select(time, hrmean, fictfact)
+subset_pushedmeanHR_sentencemean$normal<-fftfilt(rep(1, 10)/10, subset_pushedmeanHR_sentencemean$hrmean)
+subset_pushedmeanHR_sentencemean$hrmean=NULL
+
+g1 <- subset_pushedmeanHR_sentencemean %>% dygraph() %>% dyOptions(stackedGraph = TRUE) %>%
+  dyRangeSelector(height = 20)
+
+g1
+p
+```
+
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
